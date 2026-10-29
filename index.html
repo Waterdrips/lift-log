@@ -17,15 +17,20 @@
 <body>
   <main id="view" aria-live="polite"></main>
 
-  <div id="rest" hidden>
+  <div id="rest" hidden role="timer" aria-live="off">
     <div class="rest-fill"></div>
-    <span class="rest-label">Rest</span>
-    <span id="rest-time" class="rest-time">0:00</span>
-    <span class="rest-btns">
-      <button data-r="-15" aria-label="15 seconds less">−15</button>
-      <button data-r="15" aria-label="15 seconds more">+15</button>
-      <button data-r="skip">Skip</button>
-    </span>
+    <div class="rest-main">
+      <div class="rest-left">
+        <span class="rest-label" id="rest-label">Rest</span>
+        <span id="rest-time" class="rest-time">0:00</span>
+      </div>
+      <span class="rest-btns">
+        <button data-r="-15" aria-label="15 seconds less">−15</button>
+        <button data-r="15" aria-label="15 seconds more">+15</button>
+        <button data-r="skip">Skip</button>
+      </span>
+    </div>
+    <div class="rest-next" id="rest-next"></div>
   </div>
 
   <nav id="tabs" aria-label="Sections">

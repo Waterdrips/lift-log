@@ -5,7 +5,7 @@ const KEY = 'liftlog.v1';
 const CATS = ['Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core', 'Other'];
 const LP = window.LiftPlans;
 const ALL_GEAR = Object.keys(LP.GEAR);
-const SETTINGS = { unit: 'kg', rest: 90, minutes: 45, goal: 'tone', gear: ALL_GEAR, target: 3, days: [], awake: true };
+const SETTINGS = { unit: 'kg', rest: 90, minutes: 45, goal: 'tone', gear: ALL_GEAR, target: 3, days: [], awake: true, noEquip: [], superset: false, time: '18:00' };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const now = () => Date.now();
@@ -21,6 +21,7 @@ function fresh() {
     history: [],
     active: null,
     tomb: { w: {}, x: {}, t: {} }, // deleted ids → when (stops deleted built-ins coming back)
+    prefs: {}, // exercise id → never | less | more | fav
   };
 }
 
@@ -30,6 +31,7 @@ function upgrade(s) {
   s.templates = s.templates || [];
   s.history = s.history || [];
   s.tomb = Object.assign({ w: {}, x: {}, t: {} }, s.tomb);
+  s.prefs = s.prefs || {};
   delete s.sync;
   const byName = {}, remap = {};
   LP.CATALOG.forEach(c => { byName[c.name] = c.id; });
@@ -104,6 +106,23 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
+/** The most recent logged entry for an exercise (sets + how it felt). */
+function lastEntry(exId) {
+  for (const w of S.history) { const e = w.exercises.find(x => x.exId === exId); if (e) return e; }
+  return null;
+}
+
+const FEELS = [['easy', '😌', 'Too easy'], ['right', '💪', 'Just right'], ['hard', '😮‍💨', 'Too hard'], ['meh', '👎', 'Not for me']];
+const feelLabel = v => FEELS.find(f => f[0] === v);
+function feelPrompt(e) {
+  if (e.feel) {
+    const f = feelLabel(e.feel);
+    return `<div class="feel done"><span>${f[1]} ${f[2]}</span><button class="link" data-a="feel-edit">change</button></div>`;
+  }
+  return `<div class="feel"><b>How was that?</b>
+    <div class="feel-opts">${FEELS.map(([k, ico, l]) => `<button data-a="feel" data-v="${k}"><span>${ico}</span>${l}</button>`).join('')}</div></div>`;
+}
+
 /** Sets from the most recent finished workout containing this exercise. */
 function prevSets(exId) {
   for (const w of S.history) {
@@ -125,10 +144,11 @@ function suggestion(entry, j) {
 }
 
 /* ---------- Workout actions ---------- */
-function newEntry(exId, setCount, plan) {
+function newEntry(exId, setCount, plan, ss) {
   const n = setCount || plan?.sets || prevSets(exId).length || 3;
   const e = { id: uid(), exId, name: exName(exId), sets: Array.from({ length: n }, () => ({ w: '', r: '', done: false })) };
   if (plan) e.plan = plan;
+  if (ss) e.ss = ss;
   return e;
 }
 
@@ -139,7 +159,7 @@ function startWorkout(name, items = [], extra = {}) {
     name: name || defaultName(),
     start: Date.now(),
     restEnd: null, restTotal: 0,
-    exercises: items.filter(i => exById(i.exId)).map(i => newEntry(i.exId, i.sets, i.plan)),
+    exercises: items.filter(i => exById(i.exId)).map(i => newEntry(i.exId, i.sets, i.plan, i.ss)),
     ...extra,
   };
   S.tab = 'train';
@@ -163,7 +183,7 @@ function finishWorkout() {
   const a = S.active;
   const exercises = a.exercises
     .map(e => ({
-      exId: e.exId, name: e.name, ...(e.plan ? { plan: e.plan } : {}),
+      exId: e.exId, name: e.name, ...(e.plan ? { plan: e.plan } : {}), ...(e.feel ? { feel: e.feel } : {}),
       sets: e.sets.filter(s => s.done).map(s => ({ w: num(s.w) || 0, r: num(s.r) || 0 })),
     }))
     .filter(e => e.sets.length);
@@ -191,6 +211,7 @@ function finishWorkout() {
 
 function startRest(sec) {
   if (!S.active || !sec) return;
+  if (goTimer) { clearTimeout(goTimer); goTimer = null; $('#rest').classList.remove('go'); }
   S.active.restTotal = sec;
   S.active.restEnd = Date.now() + sec * 1000;
   save();
@@ -254,8 +275,10 @@ function viewTrain() {
       <h2>Or pick a focus</h2>
       <div class="focus-grid">${focus}</div>
       <button class="btn block" data-a="plan-surprise" style="margin-top:8px">🎲 Surprise me</button>
-      <h2>Ready-made sessions</h2>
-      ${sessions}
+      <details class="sessions" ${S.showSessions ? 'open' : ''}>
+        <summary data-a="toggle-sessions"><h2>Ready-made sessions</h2><span class="muted small">${LP.SESSIONS.length} ▾</span></summary>
+        ${sessions}
+      </details>
       ${tpl ? `<h2>Your routines</h2>${tpl}` : ''}
       <button class="btn ghost block" data-a="start-empty" style="margin-top:14px">Start an empty workout</button>
       ${tpl ? '' : '<p class="muted small" style="text-align:center">Tip: after a workout, open it in History and tap “Save as routine” to keep it here.</p>'}`;
@@ -279,17 +302,19 @@ function viewTrain() {
         </div>`;
     }).join('');
     return `
-      <section class="card" data-ei="${i}">
+      <section class="card ${e.ss ? 'ss-card ss-' + e.ss[1] : ''} ${e.sets.length && e.sets.every(x => x.done) ? 'complete' : ''}" data-ei="${i}">
+        ${e.ss ? `<div class="ss-badge">Superset ${e.ss[0]} · ${e.ss[1] === '1' ? 'do this, then the next one' : 'then rest'}</div>` : ''}
         <div class="ex-head">
-          <h3>${esc(exName(e.exId, e.name))}</h3>
+          <h3>${esc(exName(e.exId, e.name))} ${prefBadge(e.exId) === '⭐' ? '⭐' : ''}</h3>
           <button class="icon-btn" data-a="ex-menu" aria-label="Exercise options">⋯</button>
         </div>
         ${e.plan ? `<div class="rx"><b>${esc(rxLine(e.plan, e.sets.length))}</b> · ${esc(guidance(e.plan))}</div>` : ''}
         ${hint(e, prev) ? `<div class="rx up">${esc(hint(e, prev))}</div>` : ''}
-        ${m?.cue ? `<details class="cue"><summary>How to</summary>${esc(m.cue)}</details>` : ''}
+        ${m?.cue || m ? `<details class="cue"><summary>How to</summary>${m?.cue ? esc(m.cue) + ' ' : ''}${demoLink(e.exId)}</details>` : ''}
         <div class="set-row head"><span class="n">Set</span><span>Last time</span><span style="text-align:center">${u}</span><span style="text-align:center">${isTimed(e.exId) ? 'Secs' : 'Reps'}</span><span></span></div>
         ${rows}
         <button class="add-set" data-a="add-set">+ Add set</button>
+        ${e.sets.length && e.sets.every(x => x.done) ? feelPrompt(e) : ''}
       </section>`;
   }).join('');
 
@@ -333,7 +358,8 @@ function viewHistory() {
     lastWeek = wk;
     const detail = open ? `
       <div class="hist-detail">
-        ${w.exercises.map(e => `<div class="hist-ex"><b>${esc(exName(e.exId, e.name))}</b><span>${e.sets.map(s => esc(fmtSet(s, e.exId))).join(' · ')}</span></div>`).join('')}
+        ${w.feel || w.note ? `<div class="hist-note">${w.feel ? `<span>${SESSION_FEELS[w.feel - 1][1]} ${SESSION_FEELS[w.feel - 1][2]}</span>` : ''}${w.note ? `<span>“${esc(w.note)}”</span>` : ''}</div>` : ''}
+        ${w.exercises.map(e => `<div class="hist-ex"><b>${esc(exName(e.exId, e.name))}${e.feel ? ` <span class="feel-tag">${feelLabel(e.feel)[1]} ${feelLabel(e.feel)[2]}</span>` : ''}</b><span>${e.sets.map(s => esc(fmtSet(s, e.exId))).join(' · ')}</span></div>`).join('')}
         <div class="chips">
           <button class="chip" data-a="repeat" data-id="${w.id}">Repeat</button>
           <button class="chip" data-a="save-tpl" data-id="${w.id}">Save as routine</button>
@@ -343,7 +369,7 @@ function viewHistory() {
     return `${header}
       <div class="card" >
         <button style="width:100%;text-align:left" data-a="toggle-hist" data-id="${w.id}">
-          <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.name)}</b><span class="chev">${open ? '▴' : '▾'}</span></div>
+          <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.name)}${w.feel ? ' ' + SESSION_FEELS[w.feel - 1][1] : ''}</b><span class="chev">${open ? '▴' : '▾'}</span></div>
           <div class="hist-meta"><span>${fmtDate(w.start)}</span><span>${fmtDur(w.end - w.start)}</span><span>${sets} sets</span>${vol ? `<span>${Math.round(vol).toLocaleString()} ${esc(unit())} lifted</span>` : ''}</div>
         </button>
         ${detail}
@@ -362,13 +388,14 @@ function viewLibrary() {
     if (!list.length) return '';
     return `<div class="cat">${c}</div>` + list.map(e => `
       <button class="lib-item" data-a="lib-open" data-id="${e.id}">
-        <span class="grow">${esc(e.name)}</span>
+        <span class="grow">${esc(e.name)} ${prefBadge(e.id)}</span>
         <span class="badge">${[meta(e.id) ? LP.GEAR_ONE[meta(e.id).g] : '', counts[e.id] ? counts[e.id] + '×' : ''].filter(Boolean).join(' · ')}</span>
         <span class="chev">›</span>
       </button>`).join('');
   }).join('');
   return `
     <h1>Exercises</h1>
+    <p class="muted small" style="margin-top:-8px">Tap one for tips, a demo, your progress, and how often it should come up (⭐ favourite · 🚫 never).</p>
     <div class="row" style="align-items:center">
       <input type="search" id="lib-q" placeholder="Search exercises" value="${esc(S.libQ || '')}" style="flex:3">
       <button class="btn primary" data-a="lib-new" style="flex:0 0 auto">New</button>
@@ -400,10 +427,20 @@ function viewMore() {
         <div>Goal</div>
         <select id="goal-sel">${Object.entries(LP.GOALS).map(([k, g]) => `<option value="${k}" ${k === s.goal ? 'selected' : ''}>${g.label}</option>`).join('')}</select>
       </div>
-      <div class="setting" style="display:block">
-        <div>Equipment at your gym<div class="muted small">Today’s workout only uses these.</div></div>
-        <div class="chips">${ALL_GEAR.map(g => `<button class="chip toggle ${s.gear.includes(g) ? 'on' : ''}" data-a="gear" data-v="${g}">${LP.GEAR[g]}</button>`).join('')}</div>
-      </div>
+      ${s.days.length ? reminderSetting() : ''}
+    </div>
+
+    <h2>Equipment at your gym</h2>
+    <div class="card equip">
+      <p class="muted small" style="margin-top:0">Untick anything your gym doesn’t have — sessions will only use what’s there. (${equipCount()})</p>
+      ${LP.EQUIP.map((g, gi) => {
+        const on = g.items.filter(([id]) => !s.noEquip.includes(id)).length;
+        return `<details ${gi === 0 ? 'open' : ''}><summary><b>${esc(g.group)}</b><span class="muted small">${on} of ${g.items.length}</span></summary>
+          <div class="equip-list">${g.items.map(([id, label]) => `
+            <label class="check"><input type="checkbox" data-equip="${id}" ${s.noEquip.includes(id) ? '' : 'checked'}> ${esc(label)}</label>`).join('')}</div>
+          <div class="row" style="margin-top:6px"><button class="btn small-btn" data-a="equip-all" data-v="${gi}">All</button><button class="btn small-btn" data-a="equip-none" data-v="${gi}">None</button></div>
+        </details>`;
+      }).join('')}
     </div>
 
     <h2>During a workout</h2>
@@ -443,13 +480,15 @@ function viewMore() {
       <p style="margin-bottom:0" id="offline-status"></p>
     </div>
 
-    <button class="btn danger block" data-a="wipe" style="margin-top:24px">Erase data on this phone</button>`;
+    <button class="btn block" data-a="help" style="margin-top:24px">How to use Lift Log</button>
+    <button class="btn danger block" data-a="wipe" style="margin-top:10px">Erase data on this phone</button>`;
 }
 
 const VIEWS = { train: viewTrain, history: viewHistory, library: viewLibrary, more: viewMore };
 
 function render() {
   if (!VIEWS[S.tab]) S.tab = 'train';
+  LP.setCustom(S.exercises);
   const y = window.scrollY;
   $('#view').innerHTML = VIEWS[S.tab]();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
@@ -470,25 +509,63 @@ async function fillStatus() {
 }
 
 /* ---------- Timers (elapsed + rest) ---------- */
+/** The next set to do: respects superset order (A1 set n, then A2 set n). */
+function nextUp() {
+  const a = S.active;
+  if (!a) return null;
+  for (let i = 0; i < a.exercises.length; i++) {
+    const e = a.exercises[i], j = e.sets.findIndex(s => !s.done);
+    if (j < 0) continue;
+    const partner = e.ss && a.exercises.find(x => x !== e && x.ss && x.ss[0] === e.ss[0]);
+    if (partner && e.ss[1] === '2') {
+      const pj = partner.sets.findIndex(s => !s.done);
+      if (pj >= 0 && pj <= j) return { e: partner, j: pj };
+    }
+    return { e, j };
+  }
+  return null;
+}
+function nextText() {
+  const n = nextUp();
+  if (!n) return 'Last set done — finish when ready';
+  const sug = suggestion(n.e, n.j);
+  const w = n.e.sets[n.j].w || sug.w, r = n.e.sets[n.j].r || sug.r;
+  const target = [w ? `${w}${unit()}` : '', r ? `× ${r}${isTimed(n.e.exId) ? ' s' : ''}` : ''].filter(Boolean).join(' ');
+  return `Next: ${exName(n.e.exId, n.e.name)} · set ${n.j + 1}${target ? ' · ' + target : ''}`;
+}
+
+let goTimer = null;
 function updateTimers() {
   const a = S.active;
   const el = $('#elapsed');
   if (el && a) el.textContent = fmtClock((Date.now() - a.start) / 1000);
 
   const bar = $('#rest');
-  if (!a || !a.restEnd) { bar.hidden = true; return; }
+  const showBar = on => { bar.hidden = !on; document.body.classList.toggle('resting', on); };
+  if (goTimer) return; // "Go!" flash is showing
+  if (!a || !a.restEnd) { showBar(false); return; }
   const left = (a.restEnd - Date.now()) / 1000;
-  if (left <= -1) {
-    // Finished: alert once (if the page is open), then hide.
-    if (!a.restAlerted && left > -10) beep();
-    a.restEnd = null; a.restAlerted = false; save();
-    bar.hidden = true;
+  if (left <= 0) {
+    // Rest over: flash "Go!" for a few seconds, buzz, then hide.
+    const fresh = left > -10;
+    a.restEnd = null; save();
+    if (!fresh) { showBar(false); return; }
+    beep();
+    bar.classList.add('go');
+    $('#rest-label').textContent = 'Rest over';
+    $('#rest-time').textContent = 'Go!';
+    $('#rest-next').textContent = nextText().replace(/^Next: /, '');
+    $('.rest-fill', bar).style.width = '100%';
+    goTimer = setTimeout(() => { goTimer = null; bar.classList.remove('go'); showBar(false); }, 4000);
     return;
   }
-  bar.hidden = false;
-  $('#rest-time').textContent = fmtClock(Math.max(0, left));
+  bar.classList.remove('go');
+  showBar(true);
+  $('#rest-label').textContent = 'Rest';
+  $('#rest-time').textContent = fmtClock(left);
+  $('#rest-next').textContent = nextText();
   $('.rest-fill', bar).style.width = `${Math.min(100, Math.max(0, 100 - (left / a.restTotal) * 100))}%`;
-  if (left <= 0 && !a.restAlerted) { a.restAlerted = true; beep(); }
+  bar.classList.toggle('soon', left <= 5);
 }
 setInterval(updateTimers, 1000);
 
@@ -505,7 +582,9 @@ $('#sheet').addEventListener('close', () => { sheetHandler = null; });
 $('#sheet').addEventListener('click', e => {
   if (e.target.id === 'sheet') return closeSheet(); // backdrop tap
   const b = e.target.closest('[data-s]');
-  if (b && sheetHandler) sheetHandler(b.dataset.s, b);
+  if (!b) return;
+  if (b.dataset.s === 'pref') { setPref(b.dataset.id, b.dataset.v); plannerPrefChanged(b.dataset.id, b.dataset.v); return; }
+  if (sheetHandler) sheetHandler(b.dataset.s, b);
 });
 
 function catSelect(id, selected = 'Other') {
@@ -534,6 +613,8 @@ function openPicker() {
     S.history.forEach(w => w.exercises.forEach(e => { if (!recent.includes(e.exId) && exById(e.exId)) recent.push(e.exId); }));
     let list = S.exercises.filter(e => e.name.toLowerCase().includes(term));
     list.sort((a, b) => {
+      const fa = pref(a.id) === 'fav', fb = pref(b.id) === 'fav';
+      if (fa !== fb) return fa ? -1 : 1;
       const ra = recent.indexOf(a.id), rb = recent.indexOf(b.id);
       if (!term && (ra >= 0 || rb >= 0)) return (ra < 0 ? 1e9 : ra) - (rb < 0 ? 1e9 : rb);
       return a.name.localeCompare(b.name);
@@ -546,7 +627,7 @@ function openPicker() {
       </div>` : '';
     $('#pk-list').innerHTML = create + list.map(e => `
       <button class="sheet-action" data-s="pick" data-id="${e.id}">
-        ${esc(e.name)} <span class="muted small" style="font-weight:400">· ${e.cat}${used.has(e.id) ? ' · in workout' : ''}</span>
+        ${esc(e.name)} ${prefBadge(e.id)} <span class="muted small" style="font-weight:400">· ${e.cat}${used.has(e.id) ? ' · in workout' : ''}</span>
       </button>`).join('');
   };
   q.addEventListener('input', draw);
@@ -563,6 +644,141 @@ function addExercise(exId) {
   cards[cards.length - 1]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/* ---------- Exercise preferences, demos and progress ---------- */
+const PREFS = [['never', '🚫 Never'], ['less', 'Less'], ['normal', 'Normal'], ['more', 'More'], ['fav', '⭐ Fav']];
+const PREF_NOTE = {
+  never: 'Won’t be suggested in sessions. You can still add it yourself.',
+  less: 'Suggested less often.', normal: 'Suggested as usual.', more: 'Suggested more often.',
+  fav: 'Suggested much more often, and shown first when you add an exercise.',
+};
+const BIAS = { less: 0.7, more: -0.35, fav: -0.7 };
+const pref = id => S.prefs[id] || 'normal';
+function prefControl(id) {
+  return `<div class="pref-wrap" data-id="${id}">
+    <div class="lbl">How often should this come up?</div>
+    <div class="seg full pref">${PREFS.map(([k, l]) => `<button data-s="pref" data-id="${id}" data-v="${k}" class="${pref(id) === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="muted small" style="margin-top:6px">${PREF_NOTE[pref(id)]}</div>
+  </div>`;
+}
+function setPref(id, v) {
+  if (v === 'normal') delete S.prefs[id]; else S.prefs[id] = v;
+  save();
+  document.querySelectorAll(`.pref-wrap[data-id="${id}"]`).forEach(w => { w.outerHTML = prefControl(id); });
+}
+const prefBadge = id => ({ fav: '⭐', never: '🚫', more: '↑', less: '↓' })[pref(id)] || '';
+
+const demoUrl = name => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name.replace(/\s*\(secs\)/i, '') + ' exercise how to');
+const demoLink = id => `<a class="demo" href="${demoUrl(exName(id, meta(id)?.name))}" target="_blank" rel="noopener">▶ Watch a demo</a>`;
+
+/** Planner context: what's allowed and how to weight it. */
+function planCtx(gear = S.settings.gear) {
+  const miss = S.settings.noEquip;
+  const never = Object.keys(S.prefs).filter(k => S.prefs[k] === 'never');
+  const equipOk = c => LP.hasEquip(c, miss);
+  return {
+    ok: c => gear.includes(c.g) && equipOk(c), equipOk,
+    recent: recentIds(), exclude: new Set([...hiddenIds(), ...never]),
+    bias: c => BIAS[S.prefs[c.id]] || 0,
+  };
+}
+
+/** One point per session: best weight (or reps for bodyweight, or seconds for holds). */
+function progressSeries(id) {
+  const timed = isTimed(id);
+  const sessions = S.history.filter(w => w.exercises.some(e => e.exId === id)).slice().reverse();
+  const allBw = sessions.every(w => w.exercises.filter(e => e.exId === id).every(e => e.sets.every(s => !s.w)));
+  const kind = timed ? 'hold' : allBw ? 'reps' : 'weight';
+  const pts = sessions.map(w => {
+    const sets = w.exercises.filter(e => e.exId === id).flatMap(e => e.sets);
+    const v = kind === 'weight' ? Math.max(...sets.map(s => s.w)) : Math.max(...sets.map(s => s.r));
+    const best = kind === 'weight' ? sets.filter(s => s.w === v).reduce((m, s) => Math.max(m, s.r), 0) : null;
+    return { t: w.start, v, reps: best };
+  }).slice(-24);
+  return { kind, pts };
+}
+
+function progressChart(id) {
+  const { kind, pts } = progressSeries(id);
+  if (pts.length < 2) return pts.length ? '<p class="muted small">Your progress chart appears after two sessions.</p>' : '';
+  const title = { weight: `Best weight per session (${unit()})`, reps: 'Most reps per session', hold: 'Longest hold per session (s)' }[kind];
+  const W = 320, H = 150, L = 34, R = 14, T = 16, B = 22;
+  const vals = pts.map(p => p.v);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  // Round the axis to friendly numbers (e.g. 50 / 60 / 70).
+  const raw = (hi - lo) / 2, mag = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => st >= raw);
+  lo = Math.max(0, Math.floor(lo / step) * step); hi = Math.ceil(hi / step) * step;
+  if (hi - lo < 2 * step) hi = lo + 2 * step;
+  const x = i => L + (i * (W - L - R)) / (pts.length - 1);
+  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const ticks = [lo, lo + step, hi];
+  const iMax = vals.lastIndexOf(Math.max(...vals)), iLast = pts.length - 1;
+  const fmtV = v => (kind === 'weight' ? fmtN(Math.round(v * 10) / 10) : Math.round(v));
+  const label = (i, txt) => {
+    const anchor = i === 0 ? 'start' : i === iLast ? 'end' : 'middle';
+    return `<text class="ch-label" x="${x(i)}" y="${y(pts[i].v) - 10}" text-anchor="${anchor}">${txt}</text>`;
+  };
+  return `
+    <div class="chart" data-id="${id}">
+      <div class="ch-title">${esc(title)}</div>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}: from ${fmtV(vals[0])} to ${fmtV(vals[iLast])} over ${pts.length} sessions">
+        ${ticks.map(t => `<line class="ch-grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="ch-axis" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${fmtV(t)}</text>`).join('')}
+        <text class="ch-axis" x="${L}" y="${H - 4}">${esc(fmtShort(pts[0].t))}</text>
+        <text class="ch-axis" x="${W - R}" y="${H - 4}" text-anchor="end">${esc(fmtShort(pts[iLast].t))}</text>
+        <polyline class="ch-line" points="${pts.map((p, i) => `${x(i)},${y(p.v)}`).join(' ')}"/>
+        ${pts.map((p, i) => `<circle class="ch-dot" cx="${x(i)}" cy="${y(p.v)}" r="4"/>`).join('')}
+        ${label(iLast, fmtV(vals[iLast]))}${iMax !== iLast ? label(iMax, 'best ' + fmtV(vals[iMax])) : ''}
+        <line class="ch-cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
+        <rect class="ch-hit" x="${L - 10}" y="0" width="${W - L - R + 20}" height="${H}" fill="transparent"/>
+      </svg>
+      <div class="ch-tip" hidden></div>
+    </div>`;
+}
+const fmtShort = ts => new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+/** Tap / drag across the chart to read each session. */
+function wireChart(root) {
+  const box = root.querySelector('.chart');
+  if (!box) return;
+  const { kind, pts } = progressSeries(box.dataset.id);
+  const svg = box.querySelector('svg'), tip = box.querySelector('.ch-tip'), cross = box.querySelector('.ch-cross');
+  const dots = [...box.querySelectorAll('.ch-dot')];
+  const show = ev => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((ev.clientX - r.left) / r.width) * 320;
+    let best = 0;
+    dots.forEach((d, i) => { if (Math.abs(+d.getAttribute('cx') - vx) < Math.abs(+dots[best].getAttribute('cx') - vx)) best = i; });
+    const p = pts[best], cx = +dots[best].getAttribute('cx');
+    dots.forEach((d, i) => d.classList.toggle('on', i === best));
+    cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+    tip.hidden = false;
+    tip.innerHTML = `<b>${esc(fmtDate(p.t))}</b> ${kind === 'weight' ? `${fmtN(p.v)}${esc(unit())} × ${p.reps}` : kind === 'hold' ? `${p.v} s` : `${p.v} reps`}`;
+    const left = (cx / 320) * r.width;
+    tip.style.left = Math.min(Math.max(left, 70), r.width - 70) + 'px';
+  };
+  const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); dots.forEach(d => d.classList.remove('on')); };
+  svg.addEventListener('pointerdown', show);
+  svg.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse' || ev.buttons) show(ev); });
+  svg.addEventListener('pointerleave', hide);
+}
+
+function exerciseFields(ex, prefix) {
+  return `
+    <div class="row" style="margin-top:10px">
+      <label class="field">Equipment
+        <select id="${prefix}-g"><option value="">—</option>${Object.entries(LP.GEAR_ONE).map(([k, l]) => `<option value="${k}" ${ex.g === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field">Works
+        <select id="${prefix}-p"><option value="">Not used in plans</option>${Object.entries(LP.PATTERNS).map(([k, l]) => `<option value="${k}" ${ex.p === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    <label class="check"><input type="checkbox" id="${prefix}-t" ${ex.t ? 'checked' : ''}> Timed hold (log seconds, not reps)</label>
+    <p class="muted small" style="margin:4px 0 0">Set both equipment and what it works, and the session builder can pick it.</p>`;
+}
+function readFields(ex, prefix) {
+  ex.g = $(`#${prefix}-g`).value || undefined;
+  ex.p = $(`#${prefix}-p`).value || undefined;
+  ex.t = $(`#${prefix}-t`).checked || undefined;
+}
+
 function openExMenu(i) {
   const a = S.active, e = a.exercises[i];
   openSheet(`
@@ -571,17 +787,20 @@ function openExMenu(i) {
     <button class="sheet-action" data-s="down" ${i === a.exercises.length - 1 ? 'disabled' : ''}>Move down</button>
     ${meta(e.exId) ? '<button class="sheet-action" data-s="similar">Swap for something similar 🔀</button>' : ''}
     <button class="sheet-action" data-s="swap">Swap for another exercise</button>
+    <button class="sheet-action" data-s="progress">Progress &amp; history 📈</button>
     <button class="sheet-action" data-s="rm-set" ${e.sets.length ? '' : 'disabled'}>Remove last set</button>
-    <button class="sheet-action danger" data-s="rm">Remove exercise</button>`, act => {
+    <button class="sheet-action danger" data-s="rm">Remove exercise</button>
+    ${prefControl(e.exId)}`, act => {
     const list = a.exercises;
+    if (act === 'progress') return openLibItem(e.exId);
     if (act === 'up' && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
     if (act === 'down' && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
     if (act === 'rm-set') e.sets.pop();
     if (act === 'similar') {
-      const id = LP.swapFor(e.exId, S.settings.gear, new Set([...list.map(x => x.exId), ...hiddenIds()]), recentIds());
+      const id = LP.swapFor(e.exId, planCtx(), new Set(list.map(x => x.exId)));
       if (!id) { closeSheet(); toast('No similar exercise for your equipment'); return; }
       e.exId = id; e.name = exName(id);
-      if (e.plan) e.plan = { ...LP.prescription(id, e.plan.g), sets: e.sets.length };
+      if (e.plan) e.plan = { ...LP.prescription(id, e.plan.g), sets: e.sets.length, rest: e.ss ? e.plan.rest : LP.prescription(id, e.plan.g).rest };
       toast(`Swapped to ${e.name}`);
     }
     if (act === 'rm') {
@@ -600,6 +819,7 @@ function openExMenu(i) {
       };
       return;
     }
+    if (!['up', 'down', 'rm-set', 'similar', 'rm'].includes(act)) return;
     save(); closeSheet(); rerenderKeepScroll();
   });
 }
@@ -617,46 +837,55 @@ function openLibItem(id) {
     <div class="stat-grid">
       <div class="stat"><b>${heaviest ? fmtN(heaviest) + esc(unit()) : '—'}</b><span>Heaviest set</span></div>
       <div class="stat"><b>${best ? fmtN(Math.round(best * 10) / 10) + esc(unit()) : '—'}</b><span>Est. 1-rep max</span></div>
-      <div class="stat"><b>${mostReps}</b><span>Most reps</span></div>
+      <div class="stat"><b>${mostReps}</b><span>${isTimed(id) ? 'Longest hold (s)' : 'Most reps'}</span></div>
       <div class="stat"><b>${sessions.length}</b><span>Sessions</span></div>
     </div>
-    <div class="sheet-list" style="max-height:30vh">
-      ${sessions.slice(0, 12).map(s => `<div class="hist-ex"><b>${fmtDate(s.when)}</b><span>${s.sets.map(x => esc(fmtSet(x, id))).join(' · ')}</span></div>`).join('')}
-    </div>` : '<p class="muted">Not logged yet.</p>';
-  const m = meta(id);
+    ${progressChart(id)}
+    <details class="hist-list"><summary>All sessions</summary>
+      ${sessions.slice(0, 30).map(s => `<div class="hist-ex"><b>${fmtDate(s.when)}</b><span>${s.sets.map(x => esc(fmtSet(x, id))).join(' · ')}</span></div>`).join('')}
+    </details>` : '<p class="muted">Not logged yet.</p>';
+  const m = meta(id), builtIn = !!m && !m.custom;
   openSheet(`
     <h2>${esc(ex.name)}</h2>
-    ${m ? `<p class="muted small" style="margin-top:-6px">${esc(LP.GEAR_ONE[m.g])} · ${esc(m.cue)}</p>` : ''}
+    ${m ? `<p class="muted small" style="margin-top:-6px">${esc(LP.GEAR_ONE[m.g])}${m.cue ? ' · ' + esc(m.cue) : ''}</p>` : ''}
+    ${demoLink(id)}
     ${stats}
-    <div class="row" style="margin-top:12px"><input id="ed-name" value="${esc(ex.name)}" aria-label="Name">${catSelect('ed-cat', ex.cat)}</div>
+    ${prefControl(id)}
+    <details class="edit-ex"><summary>Edit or delete</summary>
+    <div class="row" style="margin-top:8px"><input id="ed-name" value="${esc(ex.name)}" aria-label="Name">${catSelect('ed-cat', ex.cat)}</div>
+    ${builtIn ? '' : exerciseFields(ex, 'ed')}
     <div class="row" style="margin-top:10px">
       <button class="btn danger" data-s="del">Delete</button>
       <button class="btn primary" data-s="save">Save</button>
-    </div>`, act => {
+    </div></details>`, act => {
     if (act === 'save') {
       const n = $('#ed-name').value.trim();
       if (n) ex.name = n;
       ex.cat = $('#ed-cat').value;
+      if (!builtIn) readFields(ex, 'ed');
       touch(ex);
-    }
-    if (act === 'del') {
+    } else if (act === 'del') {
       if (!confirm(`Delete “${ex.name}”? Past workouts keep their records.`)) return;
       S.exercises = S.exercises.filter(e => e.id !== id);
       S.tomb.x[id] = now();
-    }
+    } else return;
     save(); closeSheet(); render();
   });
+  wireChart($('#sheet-body'));
 }
 
 function openNewExercise() {
   openSheet(`
     <h2>New exercise</h2>
-    <input id="nx-name" placeholder="Name, e.g. Cable Pull-Through">
-    <div class="row" style="margin-top:10px">${catSelect('nx-cat')}<button class="btn primary" data-s="add">Add</button></div>`, act => {
+    <div class="row"><input id="nx-name" placeholder="Name, e.g. Kettlebell Swing">${catSelect('nx-cat')}</div>
+    ${exerciseFields({}, 'nx')}
+    <button class="btn primary block" data-s="add" style="margin-top:12px">Add exercise</button>`, act => {
     const name = $('#nx-name').value.trim();
     if (act !== 'add' || !name) return;
     if (S.exercises.some(e => e.name.toLowerCase() === name.toLowerCase())) return toast('That exercise already exists');
-    S.exercises.push({ id: uid(), name, cat: $('#nx-cat').value, u: now() });
+    const ex = { id: uid(), name, cat: $('#nx-cat').value, u: now() };
+    readFields(ex, 'nx');
+    S.exercises.push(ex);
     save(); closeSheet(); render();
   });
   setTimeout(() => $('#nx-name').focus(), 50);
@@ -699,10 +928,10 @@ function todayFocus() {
 }
 
 function quickStart(focus, minutes) {
-  const pool = LP.buildPool(focus, S.settings.gear, recentIds(), hiddenIds());
-  const { items } = LP.fit(pool, minutes, S.settings.goal);
+  const pool = LP.buildPool(focus, planCtx());
+  const { items } = LP.fit(pool, minutes, S.settings.goal, { superset: S.settings.superset });
   if (!items.length) return toast('No exercises match your equipment — check Settings');
-  startWorkout(`${LP.FOCUS[focus].label} day`, items.map(it => ({ exId: it.exId, sets: it.sets, plan: it.plan })), { focus, warm: true });
+  startWorkout(`${LP.FOCUS[focus].label} day`, items.map(it => ({ exId: it.exId, sets: it.sets, plan: it.plan, ss: it.ss })), { focus, warm: true });
   window.scrollTo(0, 0);
 }
 
@@ -721,6 +950,7 @@ function todayCard() {
   const restDay = st.days.length && !st.days.includes(dow(Date.now()));
   let msg = '';
   if (doneToday) msg = 'Done for today ✓ Rest well — recovery is when you get stronger.';
+  else if (S.history[0]?.feel && S.history[0].feel <= 2 && since < 4) msg = 'Last session felt rough. Go easier today — the quick 20 minutes still counts.';
   else if (since !== null && since >= 4) msg = `It’s been ${since} days. Never miss twice — even the 20-minute version keeps the habit going.`;
   else if (restDay) msg = 'Not one of your gym days — but if you fancy it, go for it.';
   else if (count >= goal) msg = 'Weekly goal already hit — anything now is a bonus 🎉';
@@ -786,9 +1016,24 @@ function celebrate(w) {
       </div>
       ${prs.length ? `<div class="prs"><b>New personal bests</b>${prs.map(p => `<div>⭐ ${esc(p)}</div>`).join('')}</div>` : ''}
       <p><b>${esc(cheer)}</b></p>
-      <button class="btn primary block" data-s="ok">Nice</button>
-    </div>`, () => closeSheet());
+      <div class="lbl" style="text-align:left">How was the session overall?</div>
+      <div class="rate">${SESSION_FEELS.map(([v, ico, l]) => `<button data-s="rate" data-v="${v}" class="${w.feel === v ? 'on' : ''}"><span>${ico}</span>${l}</button>`).join('')}</div>
+      <textarea id="cel-note" rows="2" placeholder="Any notes? e.g. knee felt sore, gym was busy, loved the hip thrusts">${esc(w.note || '')}</textarea>
+      <button class="btn primary block" data-s="ok" style="margin-top:10px">Save</button>
+    </div>`, (act, b) => {
+    if (act === 'rate') {
+      w.feel = +b.dataset.v; touch(w); save();
+      document.querySelectorAll('.rate button').forEach(x => x.classList.toggle('on', x === b));
+      return;
+    }
+    if (act === 'ok') {
+      const note = $('#cel-note').value.trim();
+      if (note) w.note = note; else delete w.note;
+      touch(w); save(); closeSheet(); rerenderKeepScroll();
+    }
+  });
 }
+const SESSION_FEELS = [[1, '😫', 'Rough'], [2, '😕', 'Meh'], [3, '🙂', 'OK'], [4, '😊', 'Good'], [5, '🤩', 'Great']];
 
 /* ---------- Keep the screen on during a workout ---------- */
 let wakeLock = null;
@@ -835,17 +1080,20 @@ function guidance(p) {
 /** Nudge to progress when every set last time reached the top of the range. */
 function hint(e, prev) {
   const p = e.plan;
+  const lastFeel = lastEntry(e.exId)?.feel;
+  if (lastFeel === 'easy') return p?.bw || meta(e.exId)?.g === 'bodyweight' ? '↑ Felt easy last time — slow it down or add a pause.' : '↑ Felt easy last time — go a little heavier.';
+  if (lastFeel === 'hard') return '→ Felt tough last time — stick with that weight and aim for clean reps.';
   if (!p || p.t || !prev.length || !prev.every(s => s.r >= p.hi)) return '';
   return p.bw ? `↑ You hit ${p.hi}+ on every set last time — add a pause or hold a dumbbell.`
     : `↑ You hit ${p.hi}+ on every set last time — go a little heavier.`;
 }
 
 let PL = null; // planner state while the sheet is open
+const optSummary = () => [LP.GOALS[PL.goal].label, PL.superset ? 'supersets' : '', PL.gear.length < ALL_GEAR.length ? 'some equipment' : ''].filter(Boolean).join(' · ');
 
 function openPlanner({ focus, session }) {
   const st = S.settings;
   const sess = session && LP.SESSIONS.find(x => x.id === session);
-  const hidden = hiddenIds();
   PL = {
     focus: sess ? sess.focus : focus,
     session: sess?.id || null,
@@ -854,9 +1102,11 @@ function openPlanner({ focus, session }) {
     custom: !DURATIONS.includes(st.minutes),
     goal: LP.GOALS[st.goal] ? st.goal : 'tone',
     gear: sess ? sess.gear : [...st.gear],
-    pool: sess ? sess.pool.filter(id => !hidden.has(id)) : LP.buildPool(focus, st.gear, recentIds(), hidden),
+    superset: !!st.superset,
+    open: null,
     msg: '',
   };
+  PL.pool = sess ? LP.sessionPool(sess, planCtx(sess.gear)) : LP.buildPool(focus, planCtx(PL.gear));
   drawPlanner();
 }
 
@@ -876,11 +1126,18 @@ function drawPlanner() {
       <input type="range" id="pl-range" min="15" max="120" step="5" value="${PL.minutes}" aria-label="Session length">
       <input id="pl-min" inputmode="numeric" value="${PL.minutes}" aria-label="Minutes"><span class="muted">min</span>
     </div>
+    <details class="more-opts" ${PL.moreOpen ? 'open' : ''}>
+    <summary data-s="more-opts">More options <span class="muted small">${esc(optSummary())}</span></summary>
     <div class="lbl">Goal</div>
     <div class="seg full">${Object.entries(LP.GOALS).map(([k, g]) => `<button data-s="goal" data-v="${k}" class="${PL.goal === k ? 'on' : ''}">${g.label}</button>`).join('')}</div>
     <div class="muted small" style="margin-top:6px">${esc(LP.GOALS[PL.goal].blurb)}</div>
-    ${PL.session ? '' : `<div class="lbl">Equipment</div>
+    <div class="setting" style="border:0;padding:14px 0 0">
+      <div>Supersets<div class="muted small">Do exercises in pairs, back to back, and rest after both. More done in less time.</div></div>
+      <button class="switch ${PL.superset ? 'on' : ''}" data-s="superset" role="switch" aria-checked="${PL.superset}" aria-label="Supersets"><i></i></button>
+    </div>
+    ${PL.session ? '' : `<div class="lbl">Use today</div>
       <div class="chips" style="margin-top:0">${ALL_GEAR.map(g => `<button class="chip toggle ${PL.gear.includes(g) ? 'on' : ''}" data-s="gear" data-v="${g}">${LP.GEAR[g]}</button>`).join('')}</div>`}
+    </details>
     <div id="pl-list"></div>`, plannerAction);
 
   const range = $('#pl-range'), box = $('#pl-min');
@@ -898,30 +1155,31 @@ function drawPlanner() {
 }
 
 function drawPlanList() {
-  const { items, seconds } = LP.fit(PL.pool, PL.minutes, PL.goal);
+  const { items, seconds } = LP.fit(PL.pool, PL.minutes, PL.goal, { superset: PL.superset });
   PL.items = items;
   const el = $('#pl-list');
   if (!el) return;
   if (!items.length) {
-    el.innerHTML = `<div class="empty">No exercises match that equipment — turn a few more on.</div>`;
+    el.innerHTML = `<div class="empty">No exercises match — turn on more equipment above, or check “Equipment at your gym” in Settings.</div>`;
     return;
   }
   const mins = Math.round(seconds / 60);
   el.innerHTML = `
     <div class="lbl pl-sum"><span>Your session</span><span>≈ ${mins} min · ${plural(items.length, 'exercise')}</span></div>
-    <div class="muted small">Includes a ${PL.minutes <= 20 ? 3 : 5}-minute warm-up. Tap 🔀 to swap any exercise for a similar one.</div>
+    <div class="muted small">Includes a ${PL.minutes <= 20 ? 3 : 5}-minute warm-up. Don’t fancy one? 🔀 swaps it.</div>
     ${items.map((it, i) => {
-      const m = LP.META[it.exId];
+      const m = LP.META[it.exId], open = PL.open === it.exId;
       return `
-      <div class="pl-item">
-        <span class="pl-n">${i + 1}</span>
-        <div class="grow">
-          <b>${esc(exName(it.exId, m?.name))}</b>
-          <div class="muted small">${esc(rxLine(it.plan))}${m ? ' · ' + esc(LP.GEAR_ONE[m.g]) : ''}</div>
-        </div>
+      <div class="pl-item ${it.ss ? 'ss ss-' + it.ss[1] : ''}">
+        <span class="pl-n">${it.ss || i + 1}</span>
+        <button class="grow pl-name" data-s="open" data-id="${it.exId}">
+          <b>${esc(exName(it.exId, m?.name))} ${prefBadge(it.exId)}</b>
+          <span class="muted small">${esc(rxLine(it.plan))}${m ? ' · ' + esc(LP.GEAR_ONE[m.g]) : ''}</span>
+        </button>
         <button class="icon-btn" data-s="swap" data-i="${i}" aria-label="Swap for a similar exercise">🔀</button>
         <button class="icon-btn" data-s="drop" data-i="${i}" aria-label="Remove">✕</button>
-      </div>`;
+      </div>
+      ${open ? `<div class="pl-more">${m?.cue ? `<p class="small" style="margin:0 0 6px">${esc(m.cue)}</p>` : ''}${demoLink(it.exId)}${prefControl(it.exId)}</div>` : ''}`;
     }).join('')}
     ${PL.msg ? `<p class="small" style="color:var(--accent)">${esc(PL.msg)}</p>` : ''}
     ${mins < PL.minutes - 8 ? `<p class="muted small">That’s everything for this focus with your equipment, so it’ll finish a little early.</p>` : ''}
@@ -934,31 +1192,33 @@ function drawPlanList() {
 
 function plannerAction(act, b) {
   const st = S.settings;
-  const recent = recentIds(), hidden = hiddenIds();
   switch (act) {
     case 'dur': PL.minutes = +b.dataset.v; PL.custom = false; st.minutes = PL.minutes; break;
     case 'dur-custom': PL.custom = true; break;
+    case 'more-opts': PL.moreOpen = !PL.moreOpen; return; // <details> toggles itself
     case 'goal': PL.goal = b.dataset.v; st.goal = PL.goal; break;
+    case 'superset': PL.superset = !PL.superset; st.superset = PL.superset; break;
     case 'gear': {
       const g = b.dataset.v;
       PL.gear = PL.gear.includes(g) ? PL.gear.filter(x => x !== g) : [...PL.gear, g];
       st.gear = [...PL.gear];
-      PL.pool = LP.buildPool(PL.focus, PL.gear, recent, hidden);
+      PL.pool = LP.buildPool(PL.focus, planCtx(PL.gear));
       break;
     }
     case 'reroll':
       if (PL.session) {
         // Remix a ready-made session like-for-like, keeping its equipment.
-        const used = new Set([...hidden]);
-        PL.pool = PL.pool.map(id => { const n = LP.swapFor(id, PL.gear, new Set([...used, id]), recent) || id; used.add(n); return n; });
+        const ctx = planCtx(PL.gear), used = new Set();
+        PL.pool = PL.pool.map(id => { const n = LP.swapFor(id, ctx, new Set([...used, id])) || id; used.add(n); return n; });
         if (!PL.name.endsWith('(remix)')) PL.name += ' (remix)';
       } else {
-        PL.pool = LP.buildPool(PL.focus, PL.gear, recent, hidden);
+        PL.pool = LP.buildPool(PL.focus, planCtx(PL.gear));
       }
       break;
+    case 'open': PL.open = PL.open === b.dataset.id ? null : b.dataset.id; return drawPlanList();
     case 'swap': {
       const cur = PL.items[+b.dataset.i].exId;
-      const id = LP.swapFor(cur, PL.gear, new Set([...PL.pool, ...hidden]), recent);
+      const id = LP.swapFor(cur, planCtx(PL.gear), new Set(PL.pool));
       if (id) PL.pool[PL.pool.indexOf(cur)] = id;
       else PL.msg = 'No other similar exercise with this equipment.';
       return drawPlanList();
@@ -970,7 +1230,7 @@ function plannerAction(act, b) {
     }
     case 'start': {
       if (S.active && !confirm('A workout is already in progress. Replace it?')) return;
-      const items = PL.items.map(it => ({ exId: it.exId, sets: it.sets, plan: it.plan }));
+      const items = PL.items.map(it => ({ exId: it.exId, sets: it.sets, plan: it.plan, ss: it.ss }));
       closeSheet();
       startWorkout(PL.name, items, { focus: PL.focus, warm: true });
       window.scrollTo(0, 0);
@@ -979,6 +1239,18 @@ function plannerAction(act, b) {
     default: return;
   }
   touch(st); save(); drawPlanner();
+}
+
+/** Called after an exercise's "how often" changes while the planner is open. */
+function plannerPrefChanged(id, v) {
+  if (!PL || !$('#pl-list')) return;
+  if (v === 'never' && PL.pool.includes(id)) {
+    const n = LP.swapFor(id, planCtx(PL.gear), new Set(PL.pool));
+    PL.pool = n ? PL.pool.map(x => (x === id ? n : x)) : PL.pool.filter(x => x !== id);
+    PL.open = null;
+    PL.msg = `${exName(id)} won’t be suggested again${n ? ` — swapped for ${exName(n)}` : ''}.`;
+  }
+  drawPlanList();
 }
 
 /* ---------- Events ---------- */
@@ -992,7 +1264,9 @@ document.getElementById('tabs').addEventListener('click', e => {
 document.getElementById('rest').addEventListener('click', e => {
   const b = e.target.closest('[data-r]');
   const a = S.active;
-  if (!b || !a?.restEnd) return;
+  if (!b) return;
+  if (goTimer) { clearTimeout(goTimer); goTimer = null; $('#rest').classList.remove('go'); updateTimers(); return; }
+  if (!a?.restEnd) return;
   const v = b.dataset.r;
   if (v === 'skip') { a.restEnd = null; }
   else {
@@ -1027,6 +1301,12 @@ view.addEventListener('input', e => {
 
 view.addEventListener('change', e => {
   if (e.target.id === 'rest-sel') { S.settings.rest = Number(e.target.value); touch(S.settings); save(); }
+  if (e.target.dataset.equip) {
+    const id = e.target.dataset.equip, miss = S.settings.noEquip;
+    S.settings.noEquip = e.target.checked ? miss.filter(x => x !== id) : [...miss, id];
+    touch(S.settings); save(); rerenderKeepScroll();
+  }
+  if (e.target.id === 'remind-time') { S.settings.time = e.target.value || '18:00'; touch(S.settings); save(); rerenderKeepScroll(); }
   if (e.target.id === 'target-sel') { S.settings.target = Number(e.target.value); touch(S.settings); save(); }
   if (e.target.id === 'minutes-sel') { S.settings.minutes = Number(e.target.value); touch(S.settings); save(); }
   if (e.target.id === 'goal-sel') { S.settings.goal = e.target.value; touch(S.settings); save(); }
@@ -1076,18 +1356,38 @@ view.addEventListener('click', e => {
           return;
         }
         s.done = true;
-        startRest(S.settings.rest ? (entry.plan?.rest ?? S.settings.rest) : 0);
+        // Superset: go straight to the partner's matching set, rest after the pair.
+        const partner = entry.ss && a.exercises.find(x => x !== entry && x.ss && x.ss[0] === entry.ss[0]);
+        const goPartner = partner && partner.sets[si] && !partner.sets[si].done;
+        if (!goPartner) startRest(S.settings.rest ? (entry.plan?.rest ?? S.settings.rest) : 0);
+        save(); rerenderKeepScroll();
+        if (goPartner) {
+          const pi = a.exercises.indexOf(partner);
+          toast(`Now: ${exName(partner.exId, partner.name)}`);
+          setTimeout(() => $(`[data-ei="${pi}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+        } else if (entry.sets.every(x => x.done) && !entry.feel) {
+          setTimeout(() => $(`[data-ei="${ei}"] .feel`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+        }
       } else {
         s.done = false;
+        save(); rerenderKeepScroll();
+      }
+      break;
+    }
+    case 'feel-edit': delete a.exercises[ei].feel; save(); rerenderKeepScroll(); break;
+    case 'feel': {
+      const entry = a.exercises[ei], v = b.dataset.v;
+      entry.feel = v;
+      if (v === 'meh' && pref(entry.exId) !== 'never') {
+        S.prefs[entry.exId] = 'less';
+        toast(`Noted — ${exName(entry.exId, entry.name)} will come up less often`);
       }
       save(); rerenderKeepScroll();
-      if (s.done && entry.sets.every(x => x.done)) {
-        // Exercise finished: bring the next unfinished one into view.
-        const next = a.exercises.findIndex((x, k) => k > ei && !x.sets.every(y => y.done));
-        const card = next >= 0 ? $(`[data-ei="${next}"]`) : $('[data-a="finish"]');
-        setTimeout(() => card?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
-        if (next < 0) toast('All done — tap Finish workout 🎉');
-      }
+      // Then move on to the next unfinished exercise.
+      const next = a.exercises.findIndex((x, k) => k !== ei && !x.sets.every(y => y.done));
+      const card = next >= 0 ? $(`[data-ei="${next}"]`) : $('[data-a="finish"]');
+      setTimeout(() => card?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+      if (next < 0 && v !== 'meh') toast('All done — tap Finish workout 🎉');
       break;
     }
     case 'finish': finishWorkout(); break;
@@ -1148,6 +1448,8 @@ view.addEventListener('click', e => {
 
     case 'unit': S.settings.unit = b.dataset.v; touch(S.settings); save(); render(); break;
     case 'export': exportData(); break;
+    case 'toggle-sessions': S.showSessions = !S.showSessions; save(); return;
+    case 'help': showWelcome(); break;
     case 'warm-done': a.warm = false; save(); rerenderKeepScroll(); break;
     case 'plan-focus': openPlanner({ focus: b.dataset.id }); break;
     case 'plan-session': openPlanner({ session: b.dataset.id }); break;
@@ -1165,12 +1467,13 @@ view.addEventListener('click', e => {
       S.settings.days = days.includes(d) ? days.filter(x => x !== d) : [...days, d].sort();
       touch(S.settings); save(); rerenderKeepScroll(); break;
     }
-    case 'gear': {
-      const g = b.dataset.v, gear = S.settings.gear;
-      const nextGear = gear.includes(g) ? gear.filter(x => x !== g) : [...gear, g];
-      if (!nextGear.length) return toast('Keep at least one');
-      S.settings.gear = nextGear; touch(S.settings); save(); rerenderKeepScroll(); break;
+    case 'equip-all': case 'equip-none': {
+      const ids = LP.EQUIP[+b.dataset.v].items.map(x => x[0]);
+      const rest = S.settings.noEquip.filter(x => !ids.includes(x));
+      S.settings.noEquip = act === 'equip-all' ? rest : [...rest, ...ids];
+      touch(S.settings); save(); rerenderKeepScroll(); break;
     }
+    case 'ics': downloadIcs(); break;
     case 'awake': S.settings.awake = !S.settings.awake; touch(S.settings); save(); rerenderKeepScroll(); break;
     case 'import': $('#import-file').click(); break;
     case 'wipe':
@@ -1180,6 +1483,86 @@ view.addEventListener('click', e => {
       break;
   }
 });
+
+/* ---------- Calendar reminders for gym days ---------- */
+const BYDAY = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+const equipCount = () => {
+  const total = LP.EQUIP.reduce((n, g) => n + g.items.length, 0);
+  return `${total - S.settings.noEquip.length} of ${total} ticked`;
+};
+const pad2 = n => String(n).padStart(2, '0');
+const icsDate = d => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(d.getMinutes())}00`;
+const appUrl = () => location.href.split('#')[0].split('?')[0];
+
+/** First upcoming gym day at the chosen time, and the session end. */
+function firstSession() {
+  const [h, m] = (S.settings.time || '18:00').split(':').map(Number);
+  const d = new Date(); d.setHours(h, m, 0, 0);
+  for (let i = 0; i < 8; i++) {
+    if (S.settings.days.includes(dow(d)) && d > new Date()) break;
+    d.setDate(d.getDate() + 1);
+  }
+  return [d, new Date(d.getTime() + (S.settings.minutes || 45) * 60e3)];
+}
+const rrule = () => `RRULE:FREQ=WEEKLY;BYDAY=${S.settings.days.map(i => BYDAY[i]).join(',')}`;
+
+function googleCalUrl() {
+  const [a, b] = firstSession();
+  const q = new URLSearchParams({
+    action: 'TEMPLATE', text: 'Gym 💪', dates: `${icsDate(a)}/${icsDate(b)}`, recur: rrule(),
+    details: `Open Lift Log and tap Start: ${appUrl()}`,
+    ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/London',
+  });
+  return 'https://calendar.google.com/calendar/render?' + q.toString();
+}
+
+function downloadIcs() {
+  const [a, b] = firstSession();
+  const ics = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lift Log//EN', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT', `UID:liftlog-gym-${Date.now()}@liftlog`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+    `DTSTART:${icsDate(a)}`, `DTEND:${icsDate(b)}`, rrule(), 'SUMMARY:Gym 💪',
+    `DESCRIPTION:Open Lift Log and tap Start: ${appUrl()}`, `URL:${appUrl()}`,
+    'BEGIN:VALARM', 'TRIGGER:-PT30M', 'ACTION:DISPLAY', 'DESCRIPTION:Gym in 30 minutes — bag packed?', 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR', '',
+  ].join('\r\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+  link.download = 'gym-days.ics';
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+}
+
+function reminderSetting() {
+  const s = S.settings;
+  return `<div class="setting" style="display:block">
+      <div>Reminders<div class="muted small">Put your gym days in your calendar, so your phone reminds you. Pick the time you usually go.</div></div>
+      <div class="row" style="margin-top:10px;align-items:center">
+        <input type="time" id="remind-time" value="${esc(s.time || '18:00')}" style="flex:0 0 7.5rem">
+        <a class="btn primary" href="${esc(googleCalUrl())}" target="_blank" rel="noopener">Add to Google Calendar</a>
+      </div>
+      <button class="link small" data-a="ics" style="margin-top:8px">Or download a calendar file (.ics) with a 30-minute reminder</button>
+    </div>`;
+}
+
+/* ---------- Welcome / how it works ---------- */
+function showWelcome() {
+  openSheet(`
+    <div class="welcome">
+      <div class="big-emoji">👋</div>
+      <h2>Welcome to Lift Log</h2>
+      <p class="muted">Going to the gym, made simple. Here’s all you need:</p>
+      <ol class="steps">
+        <li><b>Tap Start.</b> Your workout for today is already picked for you.</li>
+        <li><b>Do a set, then tap ✓.</b> Type the weight and reps first — or just tap ✓ to use the grey numbers.</li>
+        <li><b>Rest.</b> A big timer appears at the top and buzzes when it’s time to go again.</li>
+        <li><b>Say how it felt,</b> then <b>tap Finish</b> at the end. That’s it!</li>
+      </ol>
+      <p class="muted small">Not sure how to do an exercise? Tap <b>ⓘ How to</b> for a tip and a demo video. Everything saves on your phone, even with no signal.</p>
+      <button class="btn primary block big" data-s="ok">Let’s go</button>
+    </div>`, () => { S.seenWelcome = true; save(); closeSheet(); });
+  $('#sheet').addEventListener('close', () => { S.seenWelcome = true; save(); }, { once: true });
+}
 
 /* ---------- Backup ---------- */
 function exportData() {
@@ -1210,6 +1593,7 @@ async function importFile(file) {
 /* ---------- Boot ---------- */
 render();
 if (S.active) { toast('Workout resumed'); syncWakeLock(); }
+else if (!S.seenWelcome && !S.history.length) showWelcome();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

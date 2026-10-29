@@ -93,9 +93,59 @@
     X('Cable Woodchop', 'Core', 'cable', 'rot', 'u', 'Arms long, rotate from hips and torso, high to low.'),
   ];
 
+  // Gym equipment checklist (Settings). Each exercise lists what it needs; "a|b" means either.
+  const EQUIP = [
+    { group: 'Free weights', items: [['dumbbells', 'Dumbbells'], ['barbell', 'Barbell & plates'], ['ezbar', 'EZ curl bar'], ['rack', 'Squat rack'], ['bench', 'Bench (flat / adjustable)'], ['box', 'Step or plyo box']] },
+    { group: 'Cables', items: [['cable', 'Cable machine (adjustable pulley)'], ['pulldown', 'Lat pulldown'], ['cablerow', 'Seated cable row']] },
+    { group: 'Leg & glute machines', items: [['legpress', 'Leg press'], ['hack', 'Hack squat'], ['smith', 'Smith machine'], ['legext', 'Leg extension'], ['curl_lying', 'Lying leg curl'], ['curl_seated', 'Seated leg curl'], ['thrustm', 'Hip thrust machine'], ['kickm', 'Glute kickback machine'], ['abductor', 'Hip abduction (outer thigh)'], ['adductor', 'Hip adduction (inner thigh)'], ['calf_stand', 'Standing calf raise'], ['calf_seat', 'Seated calf raise']] },
+    { group: 'Upper body machines', items: [['chestpress', 'Chest press'], ['pecdeck', 'Pec deck / rear delt fly'], ['shoulderm', 'Shoulder press'], ['rowm', 'Seated row machine'], ['preacher', 'Preacher curl'], ['assist', 'Assisted pull-up / dip']] },
+    { group: 'Core & stations', items: [['backext', 'Back extension bench'], ['captain', 'Pull-up bar / captain’s chair'], ['abm', 'Ab crunch machine']] },
+  ];
+  const REQ = {
+    'Back Squat': 'barbell rack', 'Front Squat': 'barbell rack', 'Goblet Squat': 'dumbbells', 'Leg Press': 'legpress', 'Hack Squat': 'hack',
+    'Smith Machine Squat': 'smith', 'Romanian Deadlift': 'barbell', 'Dumbbell Romanian Deadlift': 'dumbbells', 'Bulgarian Split Squat': 'dumbbells bench',
+    'Walking Lunge': 'dumbbells', 'Reverse Lunge': 'dumbbells', 'Leg Extension': 'legext', 'Lying Leg Curl': 'curl_lying', 'Seated Leg Curl': 'curl_seated',
+    'Standing Calf Raise': 'calf_stand', 'Seated Calf Raise': 'calf_seat', 'Dumbbell Calf Raise': 'dumbbells box', 'Hip Adduction Machine': 'adductor',
+    'Hip Thrust': 'barbell bench', 'Hip Thrust Machine': 'thrustm', 'Cable Pull-Through': 'cable', 'Step-Up': 'dumbbells box', 'Cable Kickback': 'cable',
+    'Glute Kickback Machine': 'kickm', 'Hip Abduction Machine': 'abductor', 'Cable Hip Abduction': 'cable',
+    'Bench Press': 'barbell bench', 'Dumbbell Bench Press': 'dumbbells bench', 'Incline Dumbbell Press': 'dumbbells bench', 'Chest Press Machine': 'chestpress',
+    'Cable Fly': 'cable', 'Pec Deck': 'pecdeck', 'Deadlift': 'barbell', 'Lat Pulldown': 'pulldown', 'Assisted Pull-Up': 'assist', 'Straight-Arm Pulldown': 'cable|pulldown',
+    'Seated Cable Row': 'cablerow|cable', 'Seated Row Machine': 'rowm', 'One-Arm Dumbbell Row': 'dumbbells bench', 'Barbell Row': 'barbell', 'Back Extension': 'backext',
+    'Overhead Press': 'barbell', 'Dumbbell Shoulder Press': 'dumbbells', 'Shoulder Press Machine': 'shoulderm', 'Arnold Press': 'dumbbells', 'Lateral Raise': 'dumbbells',
+    'Cable Lateral Raise': 'cable', 'Face Pull': 'cable', 'Reverse Pec Deck': 'pecdeck', 'Bent-Over Reverse Fly': 'dumbbells',
+    'Dumbbell Curl': 'dumbbells', 'Hammer Curl': 'dumbbells', 'Cable Curl': 'cable', 'Barbell Curl': 'barbell|ezbar', 'Preacher Curl Machine': 'preacher',
+    'Triceps Pushdown': 'cable', 'Overhead Triceps Extension': 'dumbbells', 'Triceps Kickback': 'dumbbells', 'Assisted Dip': 'assist', 'Bench Dip': 'bench',
+    'Skull Crusher': 'barbell|ezbar bench', 'Pallof Press': 'cable', 'Cable Crunch': 'cable', 'Hanging Knee Raise': 'captain', 'Ab Crunch Machine': 'abm',
+    'Russian Twist': 'dumbbells', 'Cable Woodchop': 'cable',
+  };
+
+  // Friendly names for movement patterns (used when she tags her own exercises).
+  const PATTERNS = {
+    squat: 'Squat', hinge: 'Hinge / deadlift', lunge: 'Lunge / step-up', thrust: 'Hip thrust / bridge', glute: 'Glute kickback',
+    abduct: 'Outer thigh', adduct: 'Inner thigh', quad: 'Quads (extension)', ham: 'Hamstring curl', calf: 'Calves',
+    pushh: 'Chest press / push-up', fly: 'Chest fly', pullv: 'Pulldown / pull-up', pullh: 'Row', pushv: 'Shoulder press',
+    lateral: 'Side raise', rear: 'Rear shoulders', bi: 'Biceps', tri: 'Triceps',
+    flex: 'Abs (crunch / raise)', anti: 'Plank / stability', rot: 'Obliques / twist', backext: 'Lower back',
+  };
+
   const slug = n => 'd-' + n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const META = {};
-  CATALOG.forEach(c => { c.id = slug(c.name); META[c.id] = c; });
+  CATALOG.forEach(c => {
+    c.id = slug(c.name);
+    c.req = (REQ[c.name] || '').split(' ').filter(Boolean).map(r => r.split('|'));
+    META[c.id] = c;
+  });
+
+  /** Her own exercises that she has tagged with equipment + movement, so plans can use them. */
+  let CUSTOM = [];
+  function setCustom(list) {
+    CUSTOM.forEach(c => { delete META[c.id]; });
+    CUSTOM = list.filter(e => !META[e.id] && e.g && e.p && PATTERNS[e.p])
+      .map(e => ({ id: e.id, name: e.name, cat: e.cat, g: e.g, p: e.p, f: e.t ? 't' : '', cue: e.cue || '', req: [], custom: true }));
+    CUSTOM.forEach(c => { META[c.id] = c; });
+  }
+  /** Has the gym got everything this exercise needs? */
+  const hasEquip = (c, missing) => c.req.every(any => any.some(r => !missing.includes(r)));
 
   const GEAR = { machine: 'Machines', cable: 'Cables', dumbbell: 'Dumbbells', barbell: 'Barbell', bodyweight: 'Bodyweight' };
   const GEAR_ONE = { machine: 'Machine', cable: 'Cable', dumbbell: 'Dumbbells', barbell: 'Barbell', bodyweight: 'Bodyweight' };
@@ -164,59 +214,90 @@
   const warmup = minutes => (minutes <= 20 ? 180 : 300);
   const estimate = (items, minutes) => warmup(minutes) + items.reduce((n, it) => n + itemCost(it), 0);
 
+  // Superset = two exercises back to back, resting only after the pair.
+  const SWITCH = 15;
+  function unitCost(u) {
+    if (u.length === 1) return itemCost(u[0]);
+    const [a, b] = u, sets = a.sets;
+    return sets * (setWork(a.plan) + setWork(b.plan) + SWITCH) + (sets - 1) * Math.max(a.plan.rest, b.plan.rest) + 2 * CHANGEOVER;
+  }
+  const unitExtra = u => u.reduce((n, it) => n + setWork(it.plan), 0) + (u.length > 1 ? SWITCH : 0) + Math.max(...u.map(it => it.plan.rest));
+
   /** Take exercises from the pool in order until the time runs out, then add sets to fill the rest. */
-  function fit(pool, minutes, goalKey) {
+  function fit(pool, minutes, goalKey, opts = {}) {
     const budget = minutes * 60 + 60, G = GOALS[goalKey] || GOALS.tone;
-    const items = [];
-    let total = warmup(minutes);
-    for (const id of pool) {
-      const it = { exId: id, plan: prescription(id, goalKey) };
-      it.sets = it.plan.sets;
-      if (total + itemCost(it) > budget) break;
-      items.push(it); total += itemCost(it);
+    const mk = id => { const it = { exId: id, plan: prescription(id, goalKey) }; it.sets = it.plan.sets; return it; };
+    const group = (ids, size) => { const out = []; for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size).map(mk)); return out; };
+    const size = opts.superset ? 2 : 1;
+    let units = [], total = warmup(minutes);
+    for (const u of group(pool, size)) {
+      if (u.length > 1) { const sets = Math.max(...u.map(it => it.sets)); u.forEach(it => { it.sets = sets; }); }
+      if (total + unitCost(u) > budget) break;
+      units.push(u); total += unitCost(u);
     }
-    if (items.length < 2) { // very short session: two exercises, two sets each
-      items.length = 0;
-      pool.slice(0, 2).forEach(id => { const it = { exId: id, plan: prescription(id, goalKey) }; it.sets = 2; items.push(it); });
-      total = estimate(items, minutes);
+    if (units.flat().length < 2) { // very short: two exercises, two sets each
+      units = group(pool.slice(0, 2), size);
+      units.flat().forEach(it => { it.sets = 2; });
+      total = warmup(minutes) + units.reduce((n, u) => n + unitCost(u), 0);
     }
     for (let grew = true; grew;) {
       grew = false;
-      for (const it of items) {
-        const extra = setWork(it.plan) + it.plan.rest;
-        if (it.sets < G.max && total + extra <= budget) { it.sets++; total += extra; grew = true; }
+      for (const u of units) {
+        const extra = unitExtra(u);
+        if (u[0].sets < G.max && total + extra <= budget) { u.forEach(it => { it.sets++; }); total += extra; grew = true; }
       }
     }
-    items.forEach(it => { it.plan.sets = it.sets; });
-    return { items, seconds: total };
+    let letter = 0;
+    units.forEach(u => {
+      const ss = u.length > 1 ? 'ABCDEFGH'[letter++] : null;
+      const rest = Math.max(...u.map(it => it.plan.rest));
+      u.forEach((it, k) => { it.plan.sets = it.sets; if (ss) { it.ss = ss + (k + 1); it.plan.rest = rest; } });
+    });
+    return { items: units.flat(), seconds: total };
   }
 
   const rand = () => Math.random();
 
-  /** A random exercise for a pattern, avoiding ones already picked and preferring ones not done recently. */
-  function pick(pat, gear, exclude, recent, preferCompound = false) {
-    const opts = CATALOG.filter(c => c.p === pat && gear.includes(c.g) && !exclude.has(c.id));
+  // ctx = { ok(c): allowed with today's gear + equipment, equipOk(c): allowed ignoring the gear filter,
+  //         recent: Set of ids done lately, exclude: Set of ids never to pick, bias(c): score tweak (lower = more likely) }
+  function pick(pat, ctx, used, preferCompound = false, okFn = ctx.ok) {
+    const opts = CATALOG.concat(CUSTOM).filter(c => c.p === pat && okFn(c) && !used.has(c.id) && !ctx.exclude.has(c.id));
     if (!opts.length) return null;
-    opts.forEach(c => { c._r = rand() + (recent.has(c.id) ? 1 : 0) + (preferCompound && !c.f.includes('c') ? 0.6 : 0); });
+    opts.forEach(c => {
+      c._r = rand() + (ctx.recent.has(c.id) ? 0.8 : 0) + (preferCompound && !c.f.includes('c') && !c.custom ? 0.6 : 0) + (ctx.bias ? ctx.bias(c) : 0);
+    });
     opts.sort((a, b) => a._r - b._r);
     return opts[0].id;
   }
 
-  function buildPool(focusKey, gear, recent, exclude = new Set()) {
-    const used = new Set(exclude), pool = [];
+  function buildPool(focusKey, ctx) {
+    const used = new Set(), pool = [];
     // The first two slots lean towards big compound lifts — that's where most of the work happens.
     for (const [i, pat] of FOCUS[focusKey].slots.entries()) {
-      const id = pick(pat, gear, used, recent, i < 2);
+      const id = pick(pat, ctx, used, i < 2);
       if (id) { used.add(id); pool.push(id); }
     }
     return pool;
   }
 
-  function swapFor(id, gear, exclude, recent) {
+  /** A similar exercise (same movement). Prefers today's gear, falls back to the same kind of kit. */
+  function swapFor(id, ctx, used) {
     const m = META[id];
     if (!m) return null;
-    return pick(m.p, gear.includes(m.g) ? gear : [...gear, m.g], exclude, recent);
+    return pick(m.p, ctx, used) || pick(m.p, ctx, used, false, c => ctx.equipOk(c) && c.g === m.g);
   }
 
-  window.LiftPlans = { CATALOG, META, GEAR, GEAR_ONE, GOALS, FOCUS, SESSIONS, slug, prescription, fit, buildPool, swapFor, estimate };
+  /** A ready-made session, with anything unavailable or unwanted swapped for something similar. */
+  function sessionPool(sess, ctx) {
+    const used = new Set(), pool = [];
+    for (const id of sess.pool) {
+      const c = META[id];
+      const fine = c && ctx.equipOk(c) && !ctx.exclude.has(id) && !used.has(id);
+      const n = fine ? id : swapFor(id, { ...ctx, ok: ctx.equipOk }, used);
+      if (n) { used.add(n); pool.push(n); }
+    }
+    return pool;
+  }
+
+  window.LiftPlans = { CATALOG, META, GEAR, GEAR_ONE, GOALS, FOCUS, SESSIONS, EQUIP, PATTERNS, slug, prescription, fit, buildPool, swapFor, sessionPool, estimate, setCustom, hasEquip };
 })();
