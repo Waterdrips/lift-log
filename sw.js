@@ -1,6 +1,6 @@
 // Service worker: makes Lift Log work with no signal.
 // Bump VERSION whenever you change any file, so phones pick up the update.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `liftlog-${VERSION}`;
 const ASSETS = [
   './',
@@ -15,7 +15,8 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version gets fresh files.
+  event.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {

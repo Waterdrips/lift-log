@@ -17,6 +17,15 @@ A simple gym tracker designed to make going to the gym as easy as possible. Runs
 - **Progress chart** — each exercise shows best weight (or reps / hold time) per session; tap the chart to read any point.
 - **Equipment at your gym** — Settings has a checklist of ~30 kinds of gym kit; sessions only use exercises your gym can do.
 - **Reminders** — pick gym days and a time, then *Add to Google Calendar* (repeating event) or download an .ics with a 30-minute alert.
+- **Next weight, filled in** — when the last session felt easy or she hit the top of the rep range on every set, the next weight is pre-filled (shown in green) with a note saying why.
+- **− / + buttons** on the set she's doing now, so no typing is needed; steps match the kit (e.g. 2 kg dumbbells, 2.5 kg bars, 5 kg machines).
+- **Busy? Swap** — one tap on any exercise she hasn't started swaps it for something that works the same muscles, ideally on different equipment.
+- **Machine levels** — for machines that show levels or pin numbers instead of kg (⋯ menu or Exercises tab).
+- **4-week plan** — weeks 1–3 build up, week 4 is an "easy week" (one set fewer, ~80% weights). Restarts at week 1 after two weeks off. Can be turned off in Settings.
+- **Cool-down** — optional 3-minute guided stretches matched to the workout, with a countdown and "switch sides" prompts.
+- **Monthly recap** — shown at the start of each month (and from History): workouts, time, strength gains, most-done exercise, best-rated session.
+- **Backups** — after 5 workouts, and then monthly, a reminder to back up; *Back up now* opens Android's share sheet (Google Drive, WhatsApp, email…). Restore from Settings.
+- **Updates** — when a new version is deployed, a "Refresh" banner appears instead of changes silently waiting.
 - **Your own exercises** — give them equipment and what they work, and the builder will include them.
 - **History, exercises, routines** — workouts grouped by week, repeat or save any workout as a routine, ~75 built-in exercises (machines, cables, dumbbells, barbell, bodyweight) plus her own, and a stats page per exercise.
 - **Backup** — export/import a JSON file from Settings.
@@ -41,10 +50,10 @@ Repo → **Settings → Pages** → *Deploy from a branch* → `main` / `(root)`
 ## On the phone (Android)
 Open the URL once in Chrome, then ⋮ → **Install app** (or *Add to Home screen*). It then opens full-screen and works with no signal. (iPhone: Safari → Share → *Add to Home Screen*.)
 
-Data is stored in the browser on that phone only. Clearing Chrome's site data deletes it — use *Export backup* in Settings now and then.
+Data is stored in the browser on that phone only. Clearing Chrome's site data deletes it — the app nudges her to back up monthly (Settings → *Back up now*, restore with *Restore*).
 
 ## Updating
-Edit files, bump `VERSION` in `sw.js` (e.g. `v4` → `v5`), push. The app shows its cached copy instantly and fetches the update in the background, so changes appear on the **second** open after deploying.
+Edit files, bump `VERSION` in `sw.js` (e.g. `v5` → `v6`), push. The app shows its cached copy instantly and fetches the update in the background, and then shows a *Refresh* banner (it never reloads by itself, in case she's mid-set).
 
 ## Files
 | File | Purpose |

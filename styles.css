@@ -399,3 +399,63 @@ details.sessions > summary h2 { margin: 18px 0 8px; }
 .steps { padding-left: 0; list-style: none; counter-reset: s; margin: 14px 0; }
 .steps li { counter-increment: s; position: relative; padding: 8px 0 8px 44px; line-height: 1.4; }
 .steps li::before { content: counter(s); position: absolute; left: 0; top: 6px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; }
+
+/* ---------- Current set: big, with − / + steppers ---------- */
+.set-row.current {
+  grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 1fr) 3.3rem;
+  grid-template-areas: "n prev prev tick" "n w r tick" "n lw lr tick";
+  row-gap: 4px; padding: 10px 8px; margin: 4px -8px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.set-row.current > .n { grid-area: n; color: var(--accent); font-size: 1.1rem; }
+.set-row.current > .prev { grid-area: prev; font-size: .8rem; }
+.set-row.current > .stepper:nth-child(3) { grid-area: w; }
+.set-row.current > .stepper:nth-child(4) { grid-area: r; }
+.set-row.current > .st-lbl:nth-child(5) { grid-area: lw; }
+.set-row.current > .st-lbl:nth-child(6) { grid-area: lr; }
+.set-row.current > .tick { grid-area: tick; height: 64px; align-self: center; background: var(--accent); color: var(--accent-ink); }
+.stepper { display: flex; align-items: stretch; background: var(--surface-2); border-radius: 12px; overflow: hidden; min-width: 0; }
+.stepper button { flex: 0 0 34px; height: 46px; font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+.stepper button:active { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.set-row.current .stepper input { flex: 1; min-width: 0; background: transparent; border: 0; border-radius: 0; padding: 0 2px; font-size: 1.15rem; font-weight: 700; }
+.st-lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-align: center; }
+input.sug-up::placeholder { color: var(--good); opacity: 1; }
+
+/* ---------- Busy? Swap ---------- */
+.ex-head h3 { flex: 1; min-width: 0; }
+.busy-btn { font-size: .78rem; font-weight: 600; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
+.rx.easy { color: var(--good); font-weight: 600; }
+.rx.hold { color: var(--text); font-weight: 600; }
+
+/* ---------- Backup nudge & update banner ---------- */
+.card.backup { border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.card.backup p { margin: 6px 0 10px; }
+.update { display: flex; align-items: center; gap: 10px; justify-content: space-between; background: color-mix(in srgb, var(--good) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--good) 45%, transparent); border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; font-size: .9rem; font-weight: 600; }
+.update .btn { flex: 0 0 auto; }
+
+/* ---------- 4-week plan ---------- */
+.phase { display: flex; gap: 12px; align-items: center; margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.phase b { display: block; font-size: .92rem; }
+.phase .muted { display: block; line-height: 1.35; }
+.phase-dots { display: grid; grid-template-columns: repeat(2, 10px); gap: 4px; flex: 0 0 auto; }
+.phase-dots i { width: 10px; height: 10px; border-radius: 3px; background: var(--line); }
+.phase-dots i.past { background: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.phase-dots i.on { background: var(--accent); }
+
+/* ---------- Monthly recap ---------- */
+.recap-chips { margin: -4px 0 6px; }
+.recap-list { text-align: left; font-size: .92rem; display: grid; gap: 6px; margin: 10px 0; }
+
+/* ---------- Cool-down ---------- */
+.card.cool { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.card.cool .grow { flex: 1; }
+.card.cool.done { color: var(--good); font-weight: 600; }
+.cooldown { text-align: center; }
+.cd-top { display: flex; justify-content: space-between; align-items: center; }
+.cd-bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin: 8px 0 16px; overflow: hidden; }
+.cd-bar i { display: block; height: 100%; background: var(--accent); }
+.cooldown h2 { font-size: 1.5rem !important; margin: 0 0 6px !important; }
+.cooldown p { color: var(--muted); margin: 0 auto 10px; max-width: 30ch; }
+.cd-time { font-size: 4.5rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; margin: 10px 0 4px; }
+.cd-side { font-weight: 700; color: var(--accent); margin-bottom: 18px; min-height: 1.4em; }
