@@ -293,11 +293,6 @@ body.resting #view { padding-top: calc(env(safe-area-inset-top, 0px) + 128px); }
 .rx { font-size: .85rem; color: var(--muted); margin: -2px 0 6px; }
 .rx b { color: var(--text); font-weight: 600; }
 .rx.up { color: var(--good); font-weight: 600; }
-.cue { font-size: .85rem; color: var(--muted); margin-bottom: 8px; }
-.cue summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .8rem; list-style: none; display: inline-block; }
-.cue summary::-webkit-details-marker { display: none; }
-.cue summary::before { content: 'ⓘ '; }
-.cue[open] summary { margin-bottom: 4px; }
 .card.warm { display: flex; gap: 10px; align-items: flex-start; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .card.warm .grow { flex: 1; }
 .card.warm .small { color: var(--muted); margin-top: 2px; }
@@ -353,7 +348,6 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .pref-wrap { margin-top: 4px; }
 .seg.pref button { padding: 8px 2px; font-size: .78rem; }
 .demo { display: inline-block; color: var(--accent); font-weight: 600; font-size: .9rem; text-decoration: none; margin: 2px 0 4px; }
-.cue .demo { font-size: .85rem; margin-left: 2px; }
 
 /* ---------- Progress chart ---------- */
 .chart { position: relative; margin: 14px 0 6px; }
@@ -459,3 +453,45 @@ input.sug-up::placeholder { color: var(--good); opacity: 1; }
 .cooldown p { color: var(--muted); margin: 0 auto 10px; max-width: 30ch; }
 .cd-time { font-size: 4.5rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; margin: 10px 0 4px; }
 .cd-side { font-weight: 700; color: var(--accent); margin-bottom: 18px; min-height: 1.4em; }
+
+/* ---------- How to: photos and steps ---------- */
+.pics { position: relative; aspect-ratio: 3 / 2; border-radius: 12px; overflow: hidden; background: #fff; }
+.pics img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pics img.end { animation: flip 2.6s infinite; }
+@keyframes flip { 0%, 42% { opacity: 0; } 50%, 92% { opacity: 1; } 100% { opacity: 0; } }
+.pics.thumb { width: 64px; flex: 0 0 64px; border-radius: 8px; }
+.steps { margin: 6px 0 8px; padding-left: 1.3em; font-size: .92rem; }
+.steps li { margin-bottom: 6px; }
+.steps li::marker { color: var(--accent); font-weight: 700; }
+.watch { background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.how-btn, .tpl-ex { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface-2); border-radius: 12px; padding: 8px 10px; margin: 2px 0 10px; }
+.how-btn .grow, .tpl-ex .grow { flex: 1; min-width: 0; }
+.how-btn .grow > *, .tpl-ex .grow > * { display: block; }
+.how-btn b { color: var(--accent); font-size: .9rem; }
+.tpl-ex { margin: 0 0 6px; }
+.back-btn { display: block; margin: -4px 0 4px; }
+.pl-more .how-btn { margin-top: 6px; }
+.tpl-open { text-align: left; }
+.card.draft { display: flex; align-items: center; gap: 10px; border: 2px solid var(--accent); }
+.card.draft .ico { font-size: 1.6rem; }
+.card.draft .grow { flex: 1; min-width: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .pics { display: grid; grid-template-columns: 1fr 1fr; aspect-ratio: 3 / 1; }
+  .pics img { position: static; }
+  .pics img.end { animation: none; }
+  .pics.thumb { grid-template-columns: 1fr; aspect-ratio: 3 / 2; }
+  .pics.thumb img.end { display: none; }
+}
+
+/* ---------- Likes and favourites ---------- */
+.feel-x { display: flex; align-items: center; gap: 10px; }
+.feel-x .chip { margin: 0; padding: 4px 10px; font-size: .8rem; }
+.feel.nudge b { margin-bottom: 4px; }
+.like-list { text-align: left; margin-bottom: 14px; }
+.like-row { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.like-row .grow { flex: 1; min-width: 0; font-size: .92rem; }
+.like { width: 44px; height: 40px; border-radius: 10px; background: var(--surface-2); font-size: 1.1rem; filter: grayscale(1); opacity: .6; border: 2px solid transparent; }
+.like.on { filter: none; opacity: 1; border-color: var(--accent); }
+.celebrate > .btn.block { margin-bottom: 14px; }
+.dropped { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; color: var(--muted); }
+.dropped .chip { margin: 0; flex: 0 0 auto; }

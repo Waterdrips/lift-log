@@ -140,10 +140,31 @@ function lastEntry(exId) {
 
 const FEELS = [['easy', '😌', 'Too easy'], ['right', '💪', 'Just right'], ['hard', '😮‍💨', 'Too hard'], ['meh', '👎', 'Not for me']];
 const feelLabel = v => FEELS.find(f => f[0] === v);
+/** How many of the latest logged sessions of this exercise in a row felt fine (just right / easy). */
+function goodStreak(exId) {
+  let n = 0;
+  for (const w of S.history) {
+    const e = w.exercises.find(x => x.exId === exId);
+    if (!e) continue;
+    if (e.feel !== 'right' && e.feel !== 'easy') break;
+    n++;
+  }
+  return n;
+}
 function feelPrompt(e) {
   if (e.feel) {
-    const f = feelLabel(e.feel);
-    return `<div class="feel done"><span>${f[1]} ${f[2]}</span><button class="link" data-a="feel-edit">change</button></div>`;
+    const f = feelLabel(e.feel), p = pref(e.exId), good = e.feel === 'right' || e.feel === 'easy';
+    // Liked it three times running (counting today)? Suggest making it a favourite, once.
+    if (good && p !== 'fav' && p !== 'never' && !S.favAsked?.[e.exId] && goodStreak(e.exId) >= 2) {
+      return `<div class="feel nudge"><b>${f[1]} ${f[2]} — that’s 3 times in a row</b>
+        <div class="small">Make ${esc(exName(e.exId, e.name))} a favourite so it comes up more often?</div>
+        <div class="row" style="margin-top:8px"><button class="btn small-btn" data-a="fav-no">No thanks</button><button class="btn primary small-btn" data-a="ex-pref" data-v="fav">⭐ Favourite it</button></div></div>`;
+    }
+    const extra = p === 'fav' ? '<span class="muted small">⭐ Favourite</span>'
+      : p === 'never' ? '<span class="muted small">🚫 Won’t come up</span>'
+      : good ? '<button class="chip" data-a="ex-pref" data-v="fav">⭐ Favourite</button>'
+      : e.feel === 'meh' ? '<button class="chip" data-a="ex-pref" data-v="never">🚫 Never again</button>' : '';
+    return `<div class="feel done"><span>${f[1]} ${f[2]}</span><span class="feel-x">${extra}<button class="link" data-a="feel-edit">change</button></span></div>`;
   }
   return `<div class="feel"><b>How was that?</b>
     <div class="feel-opts">${FEELS.map(([k, ico, l]) => `<button data-a="feel" data-v="${k}"><span>${ico}</span>${l}</button>`).join('')}</div></div>`;
@@ -292,13 +313,24 @@ function viewTrain() {
   if (!a) {
     const tpl = S.templates.map(t => `
       <div class="list-item">
-        <div class="grow">
-          <div class="title">${esc(t.name)}</div>
-          <div class="muted small">${t.items.map(i => esc(exName(i.exId, i.name))).join(' · ')}</div>
-        </div>
-        <button class="icon-btn" data-a="tpl-menu" data-id="${t.id}" aria-label="Routine options">⋯</button>
+        <button class="grow tpl-open" data-a="tpl-menu" data-id="${t.id}">
+          <span class="title" style="display:block">${t.focus ? LP.FOCUS[t.focus]?.icon + ' ' : ''}${esc(t.name)} <span class="chev">›</span></span>
+          <span class="muted small" style="display:block">${t.items.map(i => esc(exName(i.exId, i.name))).join(' · ')}</span>
+        </button>
         <button class="btn primary" data-a="tpl-start" data-id="${t.id}">Start</button>
       </div>`).join('');
+    const d = S.draft;
+    const draft = d && LP.FOCUS[d.focus] ? `
+      <div class="card draft">
+        <span class="ico">${LP.FOCUS[d.focus].icon}</span>
+        <button class="grow" data-a="draft-open" style="text-align:left">
+          <span class="muted small" style="display:block">Carry on planning</span>
+          <b>${esc(d.name)}</b>
+          <span class="muted small" style="display:block">${d.minutes} min${d.n ? ' · ' + plural(d.n, 'exercise') : ''}</span>
+        </button>
+        <button class="icon-btn" data-a="draft-drop" aria-label="Bin this plan">✕</button>
+        <button class="btn primary" data-a="draft-open">Open</button>
+      </div>` : '';
     const focus = Object.entries(LP.FOCUS).map(([k, f]) => `
       <button class="focus-btn" data-a="plan-focus" data-id="${k}"><span class="ico">${f.icon}</span>${esc(f.label)}</button>`).join('');
     const sessions = LP.SESSIONS.map(x => `
@@ -312,8 +344,10 @@ function viewTrain() {
       </button>`).join('');
     return `
       <h1>${greeting()}</h1>
+      ${draft}
       ${todayCard()}
       ${backupDue() ? backupCard() : ''}
+      ${tpl ? `<h2>Saved workouts</h2>${tpl}` : ''}
       <h2>Or pick a focus</h2>
       <div class="focus-grid">${focus}</div>
       <button class="btn block" data-a="plan-surprise" style="margin-top:8px">🎲 Surprise me</button>
@@ -321,9 +355,8 @@ function viewTrain() {
         <summary data-a="toggle-sessions"><h2>Ready-made sessions</h2><span class="muted small">${LP.SESSIONS.length} ▾</span></summary>
         ${sessions}
       </details>
-      ${tpl ? `<h2>Your routines</h2>${tpl}` : ''}
       <button class="btn ghost block" data-a="start-empty" style="margin-top:14px">Start an empty workout</button>
-      ${tpl ? '' : '<p class="muted small" style="text-align:center">Tip: after a workout, open it in History and tap “Save as routine” to keep it here.</p>'}`;
+      ${tpl ? '' : '<p class="muted small" style="text-align:center">Tip: pick a focus, then tap “💾 Save for later” to keep a workout here and start it another day.</p>'}`;
   }
 
   const u = esc(unit());
@@ -370,7 +403,7 @@ function viewTrain() {
         </div>
         ${e.plan ? `<div class="rx"><b>${esc(rxLine(e.plan, e.sets.length))}</b> · ${esc(guidance(e.plan))}</div>` : ''}
         ${(h => (h ? `<div class="rx ${h.cls}">${esc(h.text)}</div>` : ''))(hint(e, prev))}
-        ${m?.cue || m ? `<details class="cue"><summary>How to</summary>${m?.cue ? esc(m.cue) + ' ' : ''}${demoLink(e.exId)}</details>` : ''}
+        ${m ? `<button class="how-btn" data-a="guide" data-id="${e.exId}">${photos(e.exId, 'thumb')}<span class="grow"><b>How to</b><span class="muted small">${esc(m.cue || 'Steps, photos and videos')}</span></span><span class="chev">›</span></button>` : ''}
         <div class="set-row head"><span class="n">Set</span><span>Last time</span><span style="text-align:center">${isLevel(e.exId) ? 'Level' : u}</span><span style="text-align:center">${isTimed(e.exId) ? 'Secs' : 'Reps'}</span><span></span></div>
         ${rows}
         <button class="add-set" data-a="add-set">+ Add set</button>
@@ -393,6 +426,7 @@ function viewTrain() {
       ? '<div class="card cool done">🧘 Cool-down done — nice.</div>'
       : `<div class="card cool"><div class="grow"><b>🧘 Cool-down · 3 min</b><div class="muted small">Optional guided stretches for what you just trained. Helps you feel less stiff tomorrow.</div></div>
         <button class="btn" data-a="cooldown">Start</button></div>`) : ''}
+    ${a.exercises.length ? '<button class="btn ghost block" data-a="keep-active" style="margin-top:14px">💾 Save this workout for another day</button>' : ''}
     <div class="row finish-row">
       <button class="btn danger" data-a="discard">Discard</button>
       <button class="btn primary" data-a="finish">Finish workout</button>
@@ -427,7 +461,7 @@ function viewHistory() {
         ${w.cool || w.phase === 4 ? `<div class="muted small">${[w.phase === 4 ? '🌿 Easy week' : '', w.cool ? '🧘 Cooled down' : ''].filter(Boolean).join(' · ')}</div>` : ''}
         <div class="chips">
           <button class="chip" data-a="repeat" data-id="${w.id}">Repeat</button>
-          <button class="chip" data-a="save-tpl" data-id="${w.id}">Save as routine</button>
+          <button class="chip" data-a="save-tpl" data-id="${w.id}">💾 Save workout</button>
           <button class="chip danger" data-a="del-hist" data-id="${w.id}">Delete</button>
         </div>
       </div>` : '';
@@ -647,8 +681,13 @@ function openSheet(html, handler) {
   const d = $('#sheet');
   if (!d.open) d.showModal();
 }
-function closeSheet() { $('#sheet').close(); }
-$('#sheet').addEventListener('close', () => { sheetHandler = null; });
+function closeSheet() { $('#sheet').close(); sheetClosed(); }
+function sheetClosed() {
+  sheetHandler = null;
+  // Closing the planner without starting keeps the plan as a "Carry on planning" card on the Train tab.
+  if (S.draftOpen) { S.draftOpen = false; save(); if (S.tab === 'train' && !S.active) rerenderKeepScroll(); }
+}
+$('#sheet').addEventListener('close', sheetClosed);
 $('#sheet').addEventListener('click', e => {
   if (e.target.id === 'sheet') return closeSheet(); // backdrop tap
   const b = e.target.closest('[data-s]');
@@ -737,8 +776,39 @@ function setPref(id, v) {
 }
 const prefBadge = id => ({ fav: '⭐', never: '🚫', more: '↑', less: '↓' })[pref(id)] || '';
 
-const demoUrl = name => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name.replace(/\s*\(secs\)/i, '') + ' exercise how to');
-const demoLink = id => `<a class="demo" href="${demoUrl(exName(id, meta(id)?.name))}" target="_blank" rel="noopener">▶ Watch a demo</a>`;
+const demoUrl = name => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('how to do ' + name.replace(/\s*\(secs\)/i, '') + ' proper form');
+const demoLink = id => `<a class="demo" href="${demoUrl(exName(id, meta(id)?.name))}" target="_blank" rel="noopener">▶ Watch videos on YouTube</a>`;
+
+/** Start and end photos, switching back and forth so you can see the movement. */
+const photos = (id, cls = '') => {
+  const p = meta(id)?.photo;
+  return p ? `<div class="pics ${cls}" aria-hidden="true"><img src="${p}-0.jpg" alt="" loading="lazy"><img src="${p}-1.jpg" alt="" loading="lazy" class="end"></div>` : '';
+};
+
+/** The full "how to": photos, what it works, numbered steps, the usual mistake and a video search. */
+function guideHtml(id) {
+  const m = meta(id), how = m?.how;
+  return `
+    ${photos(id)}
+    ${how ? `<p class="small" style="margin:10px 0 4px"><b>Works:</b> ${esc(how.works)}</p>
+      <ol class="steps">${how.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      <p class="small watch"><b>Watch out for:</b> ${esc(how.avoid)}</p>`
+    : m?.cue ? `<p class="small">${esc(m.cue)}</p>` : ''}
+    ${demoLink(id)}`;
+}
+
+/** Open the guide for one exercise. back = { label, fn } returns to the sheet it came from. */
+function openGuide(id, back) {
+  openSheet(`
+    ${back ? `<button class="link back-btn" data-s="back">‹ ${esc(back.label)}</button>` : ''}
+    <h2>${esc(exName(id, meta(id)?.name))}</h2>
+    ${guideHtml(id)}
+    <button class="btn block" data-s="${back ? 'back' : 'close'}" style="margin-top:14px">${back ? esc(back.label) : 'Close'}</button>`, act => {
+    if (act === 'back') back.fn();
+    if (act === 'close') closeSheet();
+  });
+  $('#sheet-body').scrollTop = 0;
+}
 
 /** Planner context: what's allowed and how to weight it. */
 function planCtx(gear = S.settings.gear) {
@@ -933,8 +1003,7 @@ function openLibItem(id) {
   const m = meta(id), builtIn = !!m && !m.custom;
   openSheet(`
     <h2>${esc(ex.name)}</h2>
-    ${m ? `<p class="muted small" style="margin-top:-6px">${esc(LP.GEAR_ONE[m.g])}${m.cue ? ' · ' + esc(m.cue) : ''}</p>` : ''}
-    ${demoLink(id)}
+    ${m ? `<p class="muted small" style="margin-top:-6px">${esc(LP.GEAR_ONE[m.g])}</p>${guideHtml(id)}` : demoLink(id)}
     ${stats}
     ${prefControl(id)}
     ${m && m.g !== 'bodyweight' ? `<div class="setting" style="border:0;padding:12px 0 0">
@@ -1108,11 +1177,32 @@ function celebrate(w) {
       </div>
       ${prs.length ? `<div class="prs"><b>New personal bests</b>${prs.map(p => `<div>⭐ ${esc(p)}</div>`).join('')}</div>` : ''}
       <p><b>${esc(cheer)}</b></p>
+      <button class="btn block" data-s="keep">💾 Save this workout to do again</button>
+      <div class="lbl" style="text-align:left">Which did you like?</div>
+      <div class="muted small" style="text-align:left;margin-bottom:6px">⭐ = more of it in future sessions · 👎 = never suggest it again</div>
+      <div class="like-list">${w.exercises.map(e => `
+        <div class="like-row" data-id="${e.exId}"><span class="grow">${esc(exName(e.exId, e.name))}</span>
+          <button class="like ${pref(e.exId) === 'fav' ? 'on' : ''}" data-s="like" data-v="fav" aria-label="Favourite">⭐</button>
+          <button class="like ${pref(e.exId) === 'never' ? 'on' : ''}" data-s="like" data-v="never" aria-label="Never again">👎</button></div>`).join('')}</div>
       <div class="lbl" style="text-align:left">How was the session overall?</div>
       <div class="rate">${SESSION_FEELS.map(([v, ico, l]) => `<button data-s="rate" data-v="${v}" class="${w.feel === v ? 'on' : ''}"><span>${ico}</span>${l}</button>`).join('')}</div>
       <textarea id="cel-note" rows="2" placeholder="Any notes? e.g. knee felt sore, gym was busy, loved the hip thrusts">${esc(w.note || '')}</textarea>
       <button class="btn primary block" data-s="ok" style="margin-top:10px">Save</button>
     </div>`, (act, b) => {
+    if (act === 'keep') {
+      const name = prompt('Name this workout', w.name);
+      if (name === null) return;
+      saveWorkout(name.trim() || w.name, w.exercises.map(e => ({ exId: e.exId, name: e.name, sets: e.sets.length, plan: e.plan })), w.focus);
+      b.textContent = '✓ Saved under “Saved workouts”'; b.disabled = true;
+      return;
+    }
+    if (act === 'like') {
+      const id = b.closest('[data-id]').dataset.id, v = b.dataset.v;
+      setPref(id, pref(id) === v ? 'normal' : v); // tap again to undo
+      (S.favAsked = S.favAsked || {})[id] = true; save();
+      b.parentElement.querySelectorAll('.like').forEach(x => x.classList.toggle('on', pref(id) === x.dataset.v));
+      return;
+    }
     if (act === 'rate') {
       w.feel = +b.dataset.v; touch(w); save();
       document.querySelectorAll('.rate button').forEach(x => x.classList.toggle('on', x === b));
@@ -1204,7 +1294,24 @@ function cycleWeek() {
 let PL = null; // planner state while the sheet is open
 const optSummary = () => [LP.GOALS[PL.goal].label, PL.superset ? 'supersets' : '', PL.gear.length < ALL_GEAR.length ? 'some equipment' : ''].filter(Boolean).join(' · ');
 
-function openPlanner({ focus, session }) {
+/** The plan is saved on the phone as it changes, so leaving to look something up (or the phone
+ *  closing the app) never loses it. It's reopened on the next visit until it's started, saved or binned. */
+const DRAFT_KEYS = ['focus', 'session', 'name', 'minutes', 'custom', 'goal', 'gear', 'superset', 'pool', 'moreOpen'];
+function saveDraft() {
+  S.draft = Object.fromEntries(DRAFT_KEYS.map(k => [k, PL[k]]));
+  S.draft.n = PL.items?.length || 0;
+  S.draftOpen = true;
+  save();
+}
+function clearDraft() { delete S.draft; S.draftOpen = false; save(); }
+
+function openPlanner({ focus, session, resume }) {
+  if (resume) {
+    if (!S.draft || !LP.FOCUS[S.draft.focus]) return clearDraft();
+    PL = { ...S.draft, open: null, msg: '' };
+    PL.pool = PL.pool.filter(id => meta(id) && exById(id));
+    return drawPlanner();
+  }
   const st = S.settings;
   const sess = session && LP.SESSIONS.find(x => x.id === session);
   PL = {
@@ -1293,15 +1400,46 @@ function drawPlanList() {
         <button class="icon-btn" data-s="swap" data-i="${i}" aria-label="Swap for a similar exercise">🔀</button>
         <button class="icon-btn" data-s="drop" data-i="${i}" aria-label="Remove">✕</button>
       </div>
-      ${open ? `<div class="pl-more">${m?.cue ? `<p class="small" style="margin:0 0 6px">${esc(m.cue)}</p>` : ''}${demoLink(it.exId)}${prefControl(it.exId)}</div>` : ''}`;
+      ${open ? `<div class="pl-more">
+          <button class="how-btn" data-s="guide" data-id="${it.exId}">${photos(it.exId, 'thumb')}<span class="grow"><b>How to</b><span class="muted small">${esc(m?.cue || 'Steps, photos and videos')}</span></span><span class="chev">›</span></button>
+          ${prefControl(it.exId)}</div>` : ''}`;
     }).join('')}
     ${PL.msg ? `<p class="small" style="color:var(--accent)">${esc(PL.msg)}</p>` : ''}
+    ${PL.dropped && pref(PL.dropped) !== 'never' ? `<div class="dropped small"><span>Removed ${esc(exName(PL.dropped))}. Not for you?</span>
+      <button class="chip" data-s="pref" data-id="${PL.dropped}" data-v="never">🚫 Never suggest it</button></div>` : ''}
     ${mins < PL.minutes - 8 ? `<p class="muted small">That’s everything for this focus with your equipment, so it’ll finish a little early.</p>` : ''}
-    <div class="row pl-actions">
-      <button class="btn" data-s="reroll">🎲 Randomise</button>
-      <button class="btn primary" data-s="start">Start workout</button>
+    <div class="pl-actions">
+      <div class="row">
+        <button class="btn" data-s="reroll">🎲 Randomise</button>
+        <button class="btn" data-s="keep">💾 Save for later</button>
+      </div>
+      <button class="btn primary block" data-s="start" style="margin-top:8px">Start workout</button>
     </div>`;
   PL.msg = '';
+  PL.dropped = null;
+  saveDraft();
+}
+
+/** Add a workout to "Saved workouts". items: [{ exId, name, sets, plan?, ss? }] */
+function saveWorkout(name, items, focus) {
+  S.templates.unshift({
+    id: uid(), name, u: now(), ...(focus ? { focus } : {}),
+    items: items.map(it => ({ exId: it.exId, name: it.name || exName(it.exId), sets: it.sets, ...(it.plan ? { plan: it.plan } : {}), ...(it.ss ? { ss: it.ss } : {}) })),
+  });
+  save();
+}
+
+/** Keep this plan in "Saved workouts" on the Train tab, under a name she picks. */
+function keepPlan() {
+  const name = prompt('Name this workout', PL.name);
+  if (name === null) return;
+  saveWorkout(name.trim() || PL.name, PL.items, PL.focus);
+  clearDraft();
+  closeSheet();
+  S.tab = 'train';
+  render();
+  window.scrollTo(0, 0);
+  toast('Saved — it’s under “Saved workouts”');
 }
 
 function plannerAction(act, b) {
@@ -1330,6 +1468,8 @@ function plannerAction(act, b) {
       }
       break;
     case 'open': PL.open = PL.open === b.dataset.id ? null : b.dataset.id; return drawPlanList();
+    case 'guide': return openGuide(b.dataset.id, { label: 'Back to your plan', fn: () => openPlanner({ resume: true }) });
+    case 'keep': return keepPlan();
     case 'swap': {
       const cur = PL.items[+b.dataset.i].exId;
       const id = LP.swapFor(cur, planCtx(PL.gear), new Set(PL.pool));
@@ -1340,11 +1480,13 @@ function plannerAction(act, b) {
     case 'drop': {
       const cur = PL.items[+b.dataset.i].exId;
       PL.pool = PL.pool.filter(x => x !== cur);
+      PL.dropped = cur;
       return drawPlanList();
     }
     case 'start': {
       if (S.active && !confirm('A workout is already in progress. Replace it?')) return;
       const items = PL.items.map(it => ({ exId: it.exId, sets: it.sets, plan: it.plan, ss: it.ss }));
+      clearDraft();
       closeSheet();
       startWorkout(PL.name, items, { focus: PL.focus, warm: true });
       window.scrollTo(0, 0);
@@ -1355,6 +1497,51 @@ function plannerAction(act, b) {
   touch(st); save(); drawPlanner();
 }
 
+/* ---------- Saved workouts ---------- */
+function startTemplate(id) {
+  const t = S.templates.find(x => x.id === id);
+  if (!t) return;
+  if (S.active && !confirm('A workout is already in progress. Replace it?')) return;
+  if ($('#sheet').open) closeSheet();
+  startWorkout(t.name, t.items, t.focus ? { focus: t.focus, warm: true } : {});
+  window.scrollTo(0, 0);
+}
+
+/** A saved workout: what's in it (tap any exercise for how to do it), start, rename or delete. */
+function openTemplate(id) {
+  const t = S.templates.find(x => x.id === id);
+  if (!t) return;
+  const back = { label: `Back to ${t.name}`, fn: () => openTemplate(id) };
+  openSheet(`
+    <h2>${esc(t.name)}</h2>
+    <p class="muted small" style="margin-top:-6px">${plural(t.items.length, 'exercise')} · tap one to see how it’s done</p>
+    ${t.items.map((it, i) => `
+      <button class="tpl-ex" data-s="guide" data-id="${it.exId}">
+        ${photos(it.exId, 'thumb') || `<span class="pl-n">${i + 1}</span>`}
+        <span class="grow"><b>${esc(exName(it.exId, it.name))}</b>
+          <span class="muted small">${it.plan ? esc(rxLine(it.plan, it.sets)) : plural(it.sets || 3, 'set')}${it.ss ? ' · superset ' + esc(it.ss) : ''}</span></span>
+        <span class="chev">›</span>
+      </button>`).join('')}
+    <button class="btn primary block big" data-s="start" style="margin-top:12px">Start workout</button>
+    <details class="edit-ex"><summary>Rename or delete</summary>
+      <input id="tpl-name" value="${esc(t.name)}" aria-label="Workout name" style="margin-top:8px">
+      <div class="row" style="margin-top:10px">
+        <button class="btn danger" data-s="del">Delete</button>
+        <button class="btn primary" data-s="save">Rename</button>
+      </div>
+    </details>`, (act, b) => {
+    if (act === 'guide') return openGuide(b.dataset.id, back);
+    if (act === 'start') return startTemplate(id);
+    if (act === 'del') {
+      if (!confirm(`Delete “${t.name}”?`)) return;
+      S.templates = S.templates.filter(x => x !== t);
+      S.tomb.t[t.id] = now();
+    } else if (act === 'save') { t.name = $('#tpl-name').value.trim() || t.name; touch(t); }
+    else return;
+    save(); closeSheet(); render();
+  });
+}
+
 /** Called after an exercise's "how often" changes while the planner is open. */
 function plannerPrefChanged(id, v) {
   if (!PL || !$('#pl-list')) return;
@@ -1363,7 +1550,7 @@ function plannerPrefChanged(id, v) {
     PL.pool = n ? PL.pool.map(x => (x === id ? n : x)) : PL.pool.filter(x => x !== id);
     PL.open = null;
     PL.msg = `${exName(id)} won’t be suggested again${n ? ` — swapped for ${exName(n)}` : ''}.`;
-  }
+  } else if (v === 'never') PL.msg = `${exName(id)} won’t be suggested again.`;
   drawPlanList();
 }
 
@@ -1515,6 +1702,22 @@ view.addEventListener('click', e => {
       break;
     }
     case 'feel-edit': delete a.exercises[ei].feel; save(); rerenderKeepScroll(); break;
+    case 'ex-pref': {
+      const id = a.exercises[ei].exId, v = b.dataset.v;
+      setPref(id, v);
+      (S.favAsked = S.favAsked || {})[id] = true;
+      save(); rerenderKeepScroll();
+      toast(v === 'fav' ? `⭐ ${exName(id)} will come up more often` : `🚫 ${exName(id)} won’t be suggested again`);
+      break;
+    }
+    case 'fav-no': (S.favAsked = S.favAsked || {})[a.exercises[ei].exId] = true; save(); rerenderKeepScroll(); break;
+    case 'keep-active': {
+      const name = prompt('Name this workout', a.name);
+      if (name === null) break;
+      saveWorkout(name.trim() || a.name, a.exercises.map(e => ({ exId: e.exId, name: e.name, sets: e.sets.length, plan: e.plan, ss: e.ss })), a.focus);
+      toast('Saved under “Saved workouts” — carry on, nothing’s changed here');
+      break;
+    }
     case 'feel': {
       const entry = a.exercises[ei], v = b.dataset.v;
       entry.feel = v;
@@ -1535,31 +1738,11 @@ view.addEventListener('click', e => {
       if (confirm('Discard this workout? Nothing from it will be saved.')) { S.active = null; save(); render(); syncWakeLock(); }
       break;
 
-    case 'tpl-start': {
-      if (a && !confirm('A workout is already in progress. Replace it?')) return;
-      const t = S.templates.find(x => x.id === b.dataset.id);
-      startWorkout(t.name, t.items);
-      break;
-    }
-    case 'tpl-menu': {
-      const t = S.templates.find(x => x.id === b.dataset.id);
-      openSheet(`
-        <h2>${esc(t.name)}</h2>
-        <input id="tpl-name" value="${esc(t.name)}" aria-label="Routine name">
-        <div class="row" style="margin-top:10px">
-          <button class="btn danger" data-s="del">Delete</button>
-          <button class="btn primary" data-s="save">Rename</button>
-        </div>`, act2 => {
-        if (act2 === 'del') {
-          if (!confirm(`Delete routine “${t.name}”?`)) return;
-          S.templates = S.templates.filter(x => x !== t);
-          S.tomb.t[t.id] = now();
-        }
-        if (act2 === 'save') { t.name = $('#tpl-name').value.trim() || t.name; touch(t); }
-        save(); closeSheet(); render();
-      });
-      break;
-    }
+    case 'tpl-start': startTemplate(b.dataset.id); break;
+    case 'tpl-menu': openTemplate(b.dataset.id); break;
+    case 'draft-open': openPlanner({ resume: true }); break;
+    case 'draft-drop': clearDraft(); rerenderKeepScroll(); toast('Plan binned'); break;
+    case 'guide': openGuide(b.dataset.id); break;
 
     case 'toggle-hist': S.openHist = S.openHist === b.dataset.id ? null : b.dataset.id; rerenderKeepScroll(); break;
     case 'repeat': {
@@ -1570,10 +1753,10 @@ view.addEventListener('click', e => {
     }
     case 'save-tpl': {
       const w = S.history.find(x => x.id === b.dataset.id);
-      const name = prompt('Routine name', w.name);
+      const name = prompt('Name this workout', w.name);
       if (!name) return;
-      S.templates.push({ id: uid(), name: name.trim(), u: now(), items: w.exercises.map(e => ({ exId: e.exId, name: e.name, sets: e.sets.length, ...(e.plan ? { plan: e.plan } : {}) })) });
-      save(); toast('Routine saved — find it on the Train tab');
+      saveWorkout(name.trim(), w.exercises.map(e => ({ exId: e.exId, name: e.name, sets: e.sets.length, plan: e.plan })), w.focus);
+      toast('Saved — it’s under “Saved workouts” on the Train tab');
       break;
     }
     case 'del-hist':
@@ -1950,6 +2133,7 @@ function finishCooldown() {
 /* ---------- Boot ---------- */
 render();
 if (S.active) { toast('Workout resumed'); syncWakeLock(); }
+else if (S.draftOpen && S.draft) { S.tab = 'train'; render(); openPlanner({ resume: true }); }
 else if (!S.seenWelcome && !S.history.length) showWelcome();
 else maybeShowRecap();
 
@@ -1967,5 +2151,18 @@ if ('serviceWorker' in navigator) {
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
       setInterval(() => reg.update().catch(() => {}), 3600e3);
     }).catch(() => {});
+    // Download the exercise photos quietly in the background (~4 MB, once) so "How to" works with no signal.
+    navigator.serviceWorker.ready.then(() => setTimeout(async () => {
+      if (!navigator.onLine || navigator.connection?.saveData || !window.caches) return;
+      const cache = await caches.open('liftlog-photos-v1');
+      for (const c of LP.CATALOG) {
+        for (const n of [0, 1]) {
+          const url = `${c.photo}-${n}.jpg`;
+          if (!c.photo || (await cache.match(url))) continue;
+          const res = await fetch(url).catch(() => null);
+          if (res?.ok) await cache.put(url, res);
+        }
+      }
+    }, 5000));
   });
 }

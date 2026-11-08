@@ -9,10 +9,13 @@ A simple gym tracker designed to make going to the gym as easy as possible. Runs
 - **Today's workout** — one tap starts a full session. 🎲 suggests another idea; *Quick 20 min* is the "just show up" version; *Customise…* opens the builder.
 - **Session builder** — pick a focus (Legs, Glutes, Arms & shoulders, Core, Upper body, Full body, or 🎲 Surprise me) or one of 8 ready-made sessions. Choose **30 / 45 / 60 min or a custom length**, a goal (**Tone** by default, Strength or Endurance) and what equipment the gym has. The app works out how many exercises and sets fit. 🔀 swaps any exercise for a similar one, ✕ drops it, 🎲 *Randomise* re-rolls the lot.
 - **Flexible targets** — every exercise says e.g. *"3 × 12–15 · 45s rest · Use a weight you can only just do 15 reps with"*, plus a one-line *How to* tip. When she hits the top of the range on every set, it suggests going a little heavier next time.
+- **Save for later** — *💾 Save for later* in the builder keeps a planned workout (with a name) under **Saved workouts** on the Train tab; tap it to see what's in it and how to do each exercise, then *Start* whenever. A workout can also be saved halfway through (*💾 Save this workout for another day*) or from the finish screen. A plan that's being built is also kept on the phone as it changes, so leaving to watch a video (or the phone closing the app) never loses it: it reopens, or shows a *Carry on planning* card.
+- **How to** — every exercise has start/finish photos that switch back and forth, what it works, 3–4 steps, the most common mistake, and a YouTube search for videos. Photos download once in the background so they work with no signal.
 - **Supersets** (*More options* in the builder) — pairs exercises back to back with one rest after both; the app takes you from one to the other.
-- **During the workout** — "last time" numbers next to every set, tick a set with the boxes empty to repeat the suggestion, a big rest countdown pinned to the top (shows what's next, buzzes and flashes **Go!**), the screen kept awake, and *How to* tips with a ▶ demo video link.
+- **During the workout** — "last time" numbers next to every set, tick a set with the boxes empty to repeat the suggestion, a big rest countdown pinned to the top (shows what's next, buzzes and flashes **Go!**), the screen kept awake, and a *How to* guide on every exercise.
 - **How did it feel?** — after each exercise: *Too easy · Just right · Too hard · Not for me*. Saved in the log; next time it suggests going heavier (easy) or holding the weight (hard), and "Not for me" makes it come up less.
 - **After the workout** — a celebration screen with time, sets, kg lifted, personal bests, weekly progress and streak, then a 5-face rating for the session and an optional note (both saved in History).
+- **Likes** — ⭐ Favourite / 🚫 Never again buttons right after rating an exercise, a ⭐ / 👎 list on the finish screen, a “Never suggest it” option when she removes one in the builder, and a one-off “make it a favourite?” after three good sessions in a row.
 - **How often** — every exercise can be set to 🚫 Never · Less · Normal · More · ⭐ Favourite (from the workout ⋯ menu, the builder, or the Exercises tab).
 - **Progress chart** — each exercise shows best weight (or reps / hold time) per session; tap the chart to read any point.
 - **Equipment at your gym** — Settings has a checklist of ~30 kinds of gym kit; sessions only use exercises your gym can do.
@@ -27,7 +30,7 @@ A simple gym tracker designed to make going to the gym as easy as possible. Runs
 - **Backups** — after 5 workouts, and then monthly, a reminder to back up; *Back up now* opens Android's share sheet (Google Drive, WhatsApp, email…). Restore from Settings.
 - **Updates** — when a new version is deployed, a "Refresh" banner appears instead of changes silently waiting.
 - **Your own exercises** — give them equipment and what they work, and the builder will include them.
-- **History, exercises, routines** — workouts grouped by week, repeat or save any workout as a routine, ~75 built-in exercises (machines, cables, dumbbells, barbell, bodyweight) plus her own, and a stats page per exercise.
+- **History, exercises, saved workouts** — workouts grouped by week, repeat or save any past workout, ~75 built-in exercises (machines, cables, dumbbells, barbell, bodyweight) plus her own, and a stats page per exercise.
 - **Backup** — export/import a JSON file from Settings.
 
 ### Habit design (the thinking behind it)
@@ -53,7 +56,7 @@ Open the URL once in Chrome, then ⋮ → **Install app** (or *Add to Home scree
 Data is stored in the browser on that phone only. Clearing Chrome's site data deletes it — the app nudges her to back up monthly (Settings → *Back up now*, restore with *Restore*).
 
 ## Updating
-Edit files, bump `VERSION` in `sw.js` (e.g. `v5` → `v6`), push. The app shows its cached copy instantly and fetches the update in the background, and then shows a *Refresh* banner (it never reloads by itself, in case she's mid-set).
+Edit files, bump `VERSION` in `sw.js` (e.g. `v6` → `v7`), push. The app shows its cached copy instantly and fetches the update in the background, and then shows a *Refresh* banner (it never reloads by itself, in case she's mid-set).
 
 ## Files
 | File | Purpose |
@@ -61,6 +64,8 @@ Edit files, bump `VERSION` in `sw.js` (e.g. `v5` → `v6`), push. The app shows 
 | `index.html` | App shell |
 | `app.js` | App logic (vanilla JS, no build step) |
 | `plans.js` | Exercise catalogue, ready-made sessions, session builder |
+| `howto.js` | Step-by-step guides for each exercise |
+| `img/ex/` | Start/finish photos (`<exercise>-0.jpg`, `-1.jpg`) from [free-exercise-db](https://github.com/yuhonas/free-exercise-db), public domain |
 | `styles.css` | Styles; follows the phone's light/dark mode |
 | `sw.js` | Service worker — offline support |
 | `manifest.webmanifest`, `icons/` | Home-screen install |
